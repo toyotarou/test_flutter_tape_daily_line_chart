@@ -92,6 +92,8 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
       tooltipEnabled: _tooltipEnabled,
     );
 
+    final bool dragEnabled = !_tooltipEnabled;
+
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -109,16 +111,15 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                 onToggleTooltip: (bool v) => setState(() => _tooltipEnabled = v),
               ),
               const SizedBox(height: 12),
-
               _FooterDaily(
                 onReset: () => setState(() => _startIndex = 0),
                 onToToday: () =>
                     setState(() => _startIndex = _clampStartIndex((_maxIndex - (_windowDays - 1)).toDouble())),
               ),
               const SizedBox(height: 10),
-
               Expanded(
                 child: _TapeChartFrame(
+                  dragEnabled: dragEnabled,
                   onDragUpdate: _onDragUpdate,
                   onDragEnd: _onDragEnd,
                   child: Padding(
@@ -144,9 +145,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                   ),
                 ),
               ),
-
               const SizedBox(height: 10),
-
               _MonthJumpBar(
                 monthStarts: _monthStarts,
                 currentWindowStart: startDt,
@@ -272,7 +271,6 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
       maxX: maxX,
       minY: _fixedMinY,
       maxY: _fixedMaxY,
-
       titlesData: FlTitlesData(
         topTitles: const AxisTitles(),
         bottomTitles: AxisTitles(
@@ -286,7 +284,6 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
         leftTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
-            //            reservedSize: 60,
             interval: _fixedIntervalY,
             getTitlesWidget: (_, __) => const SizedBox.shrink(),
           ),
@@ -294,27 +291,16 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
         rightTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
-            //            reservedSize: 60,
             interval: _fixedIntervalY,
             getTitlesWidget: (_, __) => const SizedBox.shrink(),
           ),
         ),
       ),
-
       gridData: const FlGridData(show: false),
       borderData: FlBorderData(show: false),
-
       lineBarsData: <LineChartBarData>[
-        LineChartBarData(
-          color: lineColor,
-          spots: spots,
-          //          isCurved: true,
-          barWidth: 3,
-          dotData: const FlDotData(show: false),
-          //          belowBarData: BarAreaData(show: true, color: lineColor.withOpacity(0.12)),
-        ),
+        LineChartBarData(color: lineColor, spots: spots, barWidth: 3, dotData: const FlDotData(show: false)),
       ],
-
       lineTouchData: tooltipEnabled
           ? LineTouchData(
               touchTooltipData: LineTouchTooltipData(
@@ -418,7 +404,6 @@ class _HeaderDaily extends StatelessWidget {
           Text('データ最終日（本日）: $todayStr', style: const TextStyle(fontSize: 12)),
           const SizedBox(height: 4),
           Text('表示範囲（$windowDays日）: $rangeStr', style: const TextStyle(fontSize: 13)),
-
           const SizedBox(height: 8),
           Row(
             children: <Widget>[
@@ -498,11 +483,17 @@ class _MonthJumpBar extends StatelessWidget {
 /////////////////////////////////////////////////////////////////
 
 class _TapeChartFrame extends StatelessWidget {
-  const _TapeChartFrame({required this.child, required this.onDragUpdate, required this.onDragEnd});
+  const _TapeChartFrame({
+    required this.child,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+    required this.dragEnabled,
+  });
 
   final Widget child;
   final void Function(DragUpdateDetails) onDragUpdate;
   final void Function(DragEndDetails) onDragEnd;
+  final bool dragEnabled;
 
   ///
   @override
@@ -510,8 +501,8 @@ class _TapeChartFrame extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: GestureDetector(
-        onHorizontalDragUpdate: onDragUpdate,
-        onHorizontalDragEnd: onDragEnd,
+        onHorizontalDragUpdate: dragEnabled ? onDragUpdate : null,
+        onHorizontalDragEnd: dragEnabled ? onDragEnd : null,
 
         /// Stack必要
         child: Stack(children: <Widget>[Positioned.fill(child: child)]),
