@@ -25,7 +25,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
   static const double _pixelsPerDay = 16.0;
 
   static const double _fixedMinY = 0;
-  static const double _fixedMaxY = 20000000;
+  static const double _fixedMaxY = 30000000;
 
   static const double _fixedIntervalY = 1000000;
 
@@ -93,7 +93,6 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
     );
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Tape Daily Line Chart (2 layers)')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -110,34 +109,44 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                 onToggleTooltip: (bool v) => setState(() => _tooltipEnabled = v),
               ),
               const SizedBox(height: 12),
+
+              _FooterDaily(
+                onReset: () => setState(() => _startIndex = 0),
+                onToToday: () =>
+                    setState(() => _startIndex = _clampStartIndex((_maxIndex - (_windowDays - 1)).toDouble())),
+              ),
+              const SizedBox(height: 10),
+
               Expanded(
                 child: _TapeChartFrame(
                   onDragUpdate: _onDragUpdate,
                   onDragEnd: _onDragEnd,
-                  child: Stack(
-                    children: <Widget>[
-                      Positioned.fill(
-                        child: LineChart(backData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
-                      ),
-                      Positioned.fill(
-                        child: LineChart(frontData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
-                      ),
-                    ],
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 25),
+                    child: Stack(
+                      children: <Widget>[
+                        Positioned.fill(
+                          child: LineChart(
+                            backData,
+                            duration: const Duration(milliseconds: 120),
+                            curve: Curves.easeOut,
+                          ),
+                        ),
+                        Positioned.fill(
+                          child: LineChart(
+                            frontData,
+                            duration: const Duration(milliseconds: 120),
+                            curve: Curves.easeOut,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              _FooterDaily(
-                onPrev: () => _jumpDays(-1),
-                onNext: () => _jumpDays(1),
-                onPrevWeek: () => _jumpDays(-7),
-                onNextWeek: () => _jumpDays(7),
-                onReset: () => setState(() => _startIndex = 0),
-                onToToday: () => setState(() {
-                  _startIndex = _clampStartIndex((_maxIndex - (_windowDays - 1)).toDouble());
-                }),
-              ),
+
               const SizedBox(height: 10),
+
               _MonthJumpBar(
                 monthStarts: _monthStarts,
                 currentWindowStart: startDt,
@@ -213,34 +222,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
       borderData: FlBorderData(show: false),
       titlesData: FlTitlesData(
         topTitles: const AxisTitles(),
-        bottomTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 34,
-            interval: 1,
-            getTitlesWidget: (double value, TitleMeta meta) {
-              final int x = value.round();
-              if (x < minX.round() || x > maxX.round()) {
-                return const SizedBox.shrink();
-              }
-
-              final DateTime dt = _dateFromIndex(x);
-
-              if (dt.day % 5 != 0) {
-                return const SizedBox.shrink();
-              }
-
-              final String label = (dt.day == 1)
-                  ? '${dt.year.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')}'
-                  : '${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')}';
-
-              return Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(label, style: const TextStyle(fontSize: 11)),
-              );
-            },
-          ),
-        ),
+        bottomTitles: const AxisTitles(),
         leftTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
@@ -252,7 +234,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
               }
               return Padding(
                 padding: const EdgeInsets.only(right: 6),
-                child: Text(_compactNumber(value), style: const TextStyle(fontSize: 11), textAlign: TextAlign.right),
+                child: Text(value.toInt().toString(), style: const TextStyle(fontSize: 11), textAlign: TextAlign.right),
               );
             },
           ),
@@ -268,7 +250,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
               }
               return Padding(
                 padding: const EdgeInsets.only(left: 6),
-                child: Text(_compactNumber(value), style: const TextStyle(fontSize: 11), textAlign: TextAlign.left),
+                child: Text(value.toInt().toString(), style: const TextStyle(fontSize: 11), textAlign: TextAlign.right),
               );
             },
           ),
@@ -340,7 +322,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                   return touchedSpots.map((LineBarSpot s) {
                     final DateTime dt = _dateFromIndex(s.x.round());
                     final String title = '${dt.year}/${dt.month}/${dt.day}';
-                    final String val = _compactNumber(s.y);
+                    final String val = s.y.toInt().toString();
                     return LineTooltipItem('$title\n$val', const TextStyle(fontSize: 12));
                   }).toList();
                 },
@@ -425,7 +407,6 @@ class _HeaderDaily extends StatelessWidget {
   Widget build(BuildContext context) {
     final String todayStr = '${today.year}/${today.month}/${today.day}';
     final String rangeStr = '${start.year}/${start.month}/${start.day} 〜 ${end.year}/${end.month}/${end.day}';
-    final String yStr = '${_compactNumber(minY)} 〜 ${_compactNumber(maxY)}';
 
     return Container(
       width: double.infinity,
@@ -437,8 +418,7 @@ class _HeaderDaily extends StatelessWidget {
           Text('データ最終日（本日）: $todayStr', style: const TextStyle(fontSize: 12)),
           const SizedBox(height: 4),
           Text('表示範囲（$windowDays日）: $rangeStr', style: const TextStyle(fontSize: 13)),
-          const SizedBox(height: 4),
-          Text('Y固定: $yStr（目盛りは動きません）', style: const TextStyle(fontSize: 12)),
+
           const SizedBox(height: 8),
           Row(
             children: <Widget>[
@@ -448,8 +428,6 @@ class _HeaderDaily extends StatelessWidget {
               Text(tooltipEnabled ? '表示' : '非表示', style: const TextStyle(fontSize: 12)),
             ],
           ),
-          const SizedBox(height: 2),
-          const Text('操作: 右→左にドラッグで未来へ “くるくる回す”', style: TextStyle(fontSize: 12)),
         ],
       ),
     );
@@ -459,19 +437,8 @@ class _HeaderDaily extends StatelessWidget {
 /////////////////////////////////////////////////////////////////
 
 class _FooterDaily extends StatelessWidget {
-  const _FooterDaily({
-    required this.onPrev,
-    required this.onNext,
-    required this.onPrevWeek,
-    required this.onNextWeek,
-    required this.onReset,
-    required this.onToToday,
-  });
+  const _FooterDaily({required this.onReset, required this.onToToday});
 
-  final VoidCallback onPrev;
-  final VoidCallback onNext;
-  final VoidCallback onPrevWeek;
-  final VoidCallback onNextWeek;
   final VoidCallback onReset;
   final VoidCallback onToToday;
 
@@ -482,12 +449,8 @@ class _FooterDaily extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: <Widget>[
-        OutlinedButton(onPressed: onPrevWeek, child: const Text('◀︎ 7日')),
-        OutlinedButton(onPressed: onPrev, child: const Text('◀︎ 1日')),
-        OutlinedButton(onPressed: onNext, child: const Text('1日 ▶︎')),
-        OutlinedButton(onPressed: onNextWeek, child: const Text('7日 ▶︎')),
         OutlinedButton(onPressed: onReset, child: const Text('先頭へ')),
-        ElevatedButton(onPressed: onToToday, child: const Text('今日付近へ')),
+        OutlinedButton(onPressed: onToToday, child: const Text('今日付近へ')),
       ],
     );
   }
@@ -549,66 +512,12 @@ class _TapeChartFrame extends StatelessWidget {
       child: GestureDetector(
         onHorizontalDragUpdate: onDragUpdate,
         onHorizontalDragEnd: onDragEnd,
-        child: Stack(
-          children: <Widget>[
-            Positioned.fill(child: child),
-            Positioned.fill(
-              child: IgnorePointer(child: CustomPaint(painter: _TapeCylinderOverlayPainter())),
-            ),
-          ],
-        ),
+
+        /// Stack必要
+        child: Stack(children: <Widget>[Positioned.fill(child: child)]),
       ),
     );
   }
-}
-
-/////////////////////////////////////////////////////////////////
-
-class _TapeCylinderOverlayPainter extends CustomPainter {
-  ///
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Rect rect = Offset.zero & size;
-
-    final Paint topBottom = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: <Color>[Colors.black26, Colors.transparent, Colors.transparent, Colors.black26],
-        stops: <double>[0.0, 0.18, 0.82, 1.0],
-      ).createShader(rect);
-    canvas.drawRect(rect, topBottom);
-
-    final Paint leftFade = Paint()
-      ..shader = LinearGradient(
-        colors: <Color>[Colors.black.withOpacity(0.18), Colors.transparent],
-        stops: const <double>[0.0, 0.18],
-      ).createShader(rect);
-
-    final Paint rightFade = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.centerRight,
-        end: Alignment.centerLeft,
-        colors: <Color>[Colors.black.withOpacity(0.18), Colors.transparent],
-        stops: const <double>[0.0, 0.18],
-      ).createShader(rect);
-
-    canvas.drawRect(rect, leftFade);
-    canvas.drawRect(rect, rightFade);
-
-    final Paint centerHighlight = Paint()
-      ..shader = RadialGradient(
-        radius: 0.9,
-        colors: <Color>[Colors.white.withOpacity(0.10), Colors.transparent],
-        stops: const <double>[0.0, 1.0],
-      ).createShader(rect);
-
-    canvas.drawRect(rect, centerHighlight);
-  }
-
-  ///
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /////////////////////////////////////////////////////////////////
@@ -641,19 +550,6 @@ List<FlSpot> _extractVisibleSpots({
   }
 
   return visible;
-}
-
-/////////////////////////////////////////////////////////////////
-
-String _compactNumber(num v) {
-  final int n = v.round();
-  if (n.abs() >= 100000000) {
-    return '${(n / 100000000).toStringAsFixed(1)}億';
-  }
-  if (n.abs() >= 10000) {
-    return '${(n / 10000).toStringAsFixed(1)}万';
-  }
-  return n.toString();
 }
 
 /////////////////////////////////////////////////////////////////
