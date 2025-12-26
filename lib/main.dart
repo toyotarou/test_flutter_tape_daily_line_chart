@@ -18,14 +18,14 @@ class TapeDailyLineChartDemoPage extends StatefulWidget {
 }
 
 class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage> {
-  late final TapeDailyChartController controller;
+  late final TapeDailyChartController tapeDailyChartController;
 
   ///
   @override
   void initState() {
     super.initState();
 
-    controller = TapeDailyChartController(
+    tapeDailyChartController = TapeDailyChartController(
       startDate: DateTime(2023),
       windowDays: 30,
       pixelsPerDay: 16.0,
@@ -35,7 +35,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
       seed: 2023,
     )..init();
 
-    controller.addListener(_onControllerChanged);
+    tapeDailyChartController.addListener(_onControllerChanged);
   }
 
   ///
@@ -49,24 +49,24 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
   ///
   @override
   void dispose() {
-    controller.removeListener(_onControllerChanged);
-    controller.dispose();
+    tapeDailyChartController.removeListener(_onControllerChanged);
+    tapeDailyChartController.dispose();
     super.dispose();
   }
 
   ///
   @override
   Widget build(BuildContext context) {
-    final double minX = controller.minX;
-    final double maxX = controller.maxX;
+    final double minX = tapeDailyChartController.minX;
+    final double maxX = tapeDailyChartController.maxX;
 
-    final DateTime startDt = controller.dateFromIndex(minX.round());
-    final DateTime endDt = controller.dateFromIndex(maxX.round());
+    final DateTime startDt = tapeDailyChartController.dateFromIndex(minX.round());
+    final DateTime endDt = tapeDailyChartController.dateFromIndex(maxX.round());
 
-    final bool dragEnabled = !controller.tooltipEnabled;
+    final bool dragEnabled = !tapeDailyChartController.tooltipEnabled;
 
-    final LineChartData backData = controller.buildBackData();
-    final LineChartData frontData = controller.buildFrontData(context);
+    final LineChartData backData = tapeDailyChartController.buildBackData();
+    final LineChartData frontData = tapeDailyChartController.buildFrontData(context);
 
     return Scaffold(
       body: SafeArea(
@@ -77,21 +77,24 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
               _HeaderDaily(
                 start: startDt,
                 end: endDt,
-                today: controller.todayJst,
-                windowDays: controller.windowDays,
-                minY: controller.fixedMinY,
-                maxY: controller.fixedMaxY,
-                tooltipEnabled: controller.tooltipEnabled,
-                onToggleTooltip: (bool v) => controller.setTooltipEnabled(v),
+                today: tapeDailyChartController.todayJst,
+                windowDays: tapeDailyChartController.windowDays,
+                minY: tapeDailyChartController.fixedMinY,
+                maxY: tapeDailyChartController.fixedMaxY,
+                tooltipEnabled: tapeDailyChartController.tooltipEnabled,
+                onToggleTooltip: (bool v) => tapeDailyChartController.setTooltipEnabled(v),
               ),
               const SizedBox(height: 12),
-              _FooterDaily(onReset: controller.resetToStart, onToToday: controller.jumpToTodayWindow),
+              _FooterDaily(
+                onReset: tapeDailyChartController.resetToStart,
+                onToToday: tapeDailyChartController.jumpToTodayWindow,
+              ),
               const SizedBox(height: 10),
               Expanded(
                 child: TapeChartFrame(
                   dragEnabled: dragEnabled,
-                  onDragUpdate: controller.onDragUpdate,
-                  onDragEnd: controller.onDragEnd,
+                  onDragUpdate: tapeDailyChartController.onDragUpdate,
+                  onDragEnd: tapeDailyChartController.onDragEnd,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 25),
                     child: Stack(
@@ -116,12 +119,11 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                 ),
               ),
               const SizedBox(height: 10),
-
               _MonthJumpBar(
-                monthStarts: controller.monthStarts,
+                monthStarts: tapeDailyChartController.monthStarts,
                 currentWindowStart: startDt,
                 onTapMonth: (DateTime monthStart) {
-                  controller.jumpToMonth(monthStart);
+                  tapeDailyChartController.jumpToMonth(monthStart);
                 },
               ),
             ],
@@ -143,6 +145,7 @@ class TapeDailyChartController extends ChangeNotifier {
     required this.fixedMaxY,
     required this.fixedIntervalY,
     required this.seed,
+    this.dataSpots,
   });
 
   final DateTime startDate;
@@ -154,6 +157,8 @@ class TapeDailyChartController extends ChangeNotifier {
   final double fixedIntervalY;
 
   final int seed;
+
+  final List<FlSpot>? dataSpots;
 
   late final DateTime todayJst;
   late final List<FlSpot> allSpots;
@@ -171,18 +176,28 @@ class TapeDailyChartController extends ChangeNotifier {
     final DateTime now = DateTime.now();
     todayJst = DateTime(now.year, now.month, now.day);
 
-    allSpots = _makeDailyDemoSpotsFixedRangeWavy(
+    allSpots = _prepareSpots();
+
+    maxIndex = allSpots.isEmpty ? 0 : allSpots.last.x.floor();
+    startIndex = 0;
+
+    monthStarts = _buildMonthStarts(start: startDate, endInclusive: todayJst);
+  }
+
+  ///
+  List<FlSpot> _prepareSpots() {
+    if (dataSpots != null && dataSpots!.isNotEmpty) {
+      final List<FlSpot> sorted = List<FlSpot>.from(dataSpots!)..sort((FlSpot a, FlSpot b) => a.x.compareTo(b.x));
+      return sorted;
+    }
+
+    return _makeDailyDemoSpotsFixedRangeWavy(
       start: startDate,
       endInclusive: todayJst,
       seed: seed,
       minY: fixedMinY,
       maxY: fixedMaxY,
     );
-
-    maxIndex = allSpots.isEmpty ? 0 : allSpots.last.x.floor();
-    startIndex = 0;
-
-    monthStarts = _buildMonthStarts(start: startDate, endInclusive: todayJst);
   }
 
   ///
