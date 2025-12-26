@@ -20,6 +20,8 @@ class TapeDailyLineChartDemoPage extends StatefulWidget {
 class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage> {
   late final TapeDailyChartController tapeDailyChartController;
 
+  final TransformationController _transformationController = TransformationController();
+
   ///
   @override
   void initState() {
@@ -51,6 +53,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
   void dispose() {
     tapeDailyChartController.removeListener(_onControllerChanged);
     tapeDailyChartController.dispose();
+    _transformationController.dispose();
     super.dispose();
   }
 
@@ -63,7 +66,8 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
     final DateTime startDt = tapeDailyChartController.dateFromIndex(minX.round());
     final DateTime endDt = tapeDailyChartController.dateFromIndex(maxX.round());
 
-    final bool dragEnabled = !tapeDailyChartController.tooltipEnabled;
+    // 拡大中はテープドラッグを止める（ピンチ＆パンを優先）
+    final bool dragEnabled = !tapeDailyChartController.zoomMode;
 
     final LineChartData backData = tapeDailyChartController.buildBackData();
     final LineChartData frontData = tapeDailyChartController.buildFrontData(context);
@@ -82,14 +86,39 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                 minY: tapeDailyChartController.fixedMinY,
                 maxY: tapeDailyChartController.fixedMaxY,
                 tooltipEnabled: tapeDailyChartController.tooltipEnabled,
+                tooltipSwitchEnabled: !tapeDailyChartController.zoomMode,
                 onToggleTooltip: (bool v) => tapeDailyChartController.setTooltipEnabled(v),
               ),
               const SizedBox(height: 12),
               _FooterDaily(
-                onReset: tapeDailyChartController.resetToStart,
-                onToToday: tapeDailyChartController.jumpToTodayWindow,
+                onReset: () {
+                  _transformationController.value = Matrix4.identity();
+                  tapeDailyChartController.resetToStart();
+                },
+                onToToday: () {
+                  _transformationController.value = Matrix4.identity();
+                  tapeDailyChartController.jumpToTodayWindow();
+                },
               ),
               const SizedBox(height: 10),
+
+              /// 拡大ON/OFF + リセット
+              _ZoomBar(
+                zoomMode: tapeDailyChartController.zoomMode,
+                onToggleZoom: () {
+                  final bool next = !tapeDailyChartController.zoomMode;
+                  if (!next) {
+                    _transformationController.value = Matrix4.identity();
+                  }
+                  tapeDailyChartController.setZoomMode(next);
+                },
+                onResetTransform: tapeDailyChartController.zoomMode
+                    ? () => _transformationController.value = Matrix4.identity()
+                    : null,
+              ),
+
+              const SizedBox(height: 10),
+
               Expanded(
                 child: TapeChartFrame(
                   dragEnabled: dragEnabled,
@@ -97,23 +126,10 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                   onDragEnd: tapeDailyChartController.onDragEnd,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 25),
-                    child: Stack(
-                      children: <Widget>[
-                        Positioned.fill(
-                          child: LineChart(
-                            backData,
-                            duration: const Duration(milliseconds: 120),
-                            curve: Curves.easeOut,
-                          ),
-                        ),
-                        Positioned.fill(
-                          child: LineChart(
-                            frontData,
-                            duration: const Duration(milliseconds: 120),
-                            curve: Curves.easeOut,
-                          ),
-                        ),
-                      ],
+                    child: _buildChartStack(
+                      backData: backData,
+                      frontData: frontData,
+                      zoomMode: tapeDailyChartController.zoomMode,
                     ),
                   ),
                 ),
@@ -123,6 +139,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                 monthStarts: tapeDailyChartController.monthStarts,
                 currentWindowStart: startDt,
                 onTapMonth: (DateTime monthStart) {
+                  _transformationController.value = Matrix4.identity();
                   tapeDailyChartController.jumpToMonth(monthStart);
                 },
               ),
@@ -130,6 +147,31 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
           ),
         ),
       ),
+    );
+  }
+
+  ///
+  Widget _buildChartStack({required LineChartData backData, required LineChartData frontData, required bool zoomMode}) {
+    final Widget charts = Stack(
+      children: <Widget>[
+        Positioned.fill(
+          child: LineChart(backData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
+        ),
+        Positioned.fill(
+          child: LineChart(frontData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
+        ),
+      ],
+    );
+
+    if (!zoomMode) {
+      return charts;
+    }
+
+    return InteractiveViewer(
+      transformationController: _transformationController,
+      minScale: 1.0,
+      maxScale: 10.0,
+      child: AbsorbPointer(child: charts),
     );
   }
 }
@@ -158,6 +200,8 @@ class TapeDailyChartController extends ChangeNotifier {
 
   final int seed;
 
+  /// 外部注入（Riverpod等で取得した値を渡す）
+  /// x: startDateからの経過日数（0,1,2...）
   final List<FlSpot>? dataSpots;
 
   late final DateTime todayJst;
@@ -170,6 +214,9 @@ class TapeDailyChartController extends ChangeNotifier {
   double dragAccumDx = 0;
 
   bool tooltipEnabled = false;
+
+  /// ★拡大モード（ピンチ）
+  bool zoomMode = false;
 
   ///
   void init() {
@@ -217,6 +264,15 @@ class TapeDailyChartController extends ChangeNotifier {
   }
 
   ///
+  void setZoomMode(bool v) {
+    zoomMode = v;
+
+    // 拡大中はツールチップを必ずオフ（要求仕様）
+    dragAccumDx = 0;
+    notifyListeners();
+  }
+
+  ///
   void resetToStart() {
     startIndex = 0;
     dragAccumDx = 0;
@@ -240,6 +296,10 @@ class TapeDailyChartController extends ChangeNotifier {
 
   ///
   void onDragUpdate(DragUpdateDetails d) {
+    if (zoomMode) {
+      return; // ピンチ優先
+    }
+
     dragAccumDx += d.delta.dx;
 
     while (dragAccumDx <= -pixelsPerDay) {
@@ -287,6 +347,8 @@ class TapeDailyChartController extends ChangeNotifier {
 
     final Color lineColor = Theme.of(context).colorScheme.primary;
 
+    final bool effectiveTooltip = tooltipEnabled && !zoomMode;
+
     return LineChartData(
       minX: minX0,
       maxX: maxX0,
@@ -320,9 +382,33 @@ class TapeDailyChartController extends ChangeNotifier {
       gridData: const FlGridData(show: false),
       borderData: FlBorderData(show: false),
       lineBarsData: <LineChartBarData>[
-        LineChartBarData(color: lineColor, spots: visibleSpots, barWidth: 3, dotData: const FlDotData(show: false)),
+        LineChartBarData(
+          color: lineColor,
+          spots: visibleSpots,
+          barWidth: 3,
+          isStrokeCapRound: true,
+
+          // ★拡大中は「値入りの円形」を表示
+          dotData: zoomMode
+              ? FlDotData(
+                  checkToShowDot: (FlSpot _, LineChartBarData __) => true,
+                  getDotPainter: (FlSpot spot, double xPercentage, LineChartBarData bar, int index) {
+                    return ValueCircleDotPainter(
+                      value: spot.y,
+                      radius: 12,
+                      fillColor: Colors.black.withOpacity(0.75),
+                      strokeColor: Colors.white.withOpacity(0.9),
+                      strokeWidth: 1,
+                      textStyle: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                    );
+                  },
+                )
+              : const FlDotData(show: false),
+        ),
       ],
-      lineTouchData: tooltipEnabled
+
+      // ★拡大中はツールチップ無効、通常時はスイッチに従う
+      lineTouchData: effectiveTooltip
           ? LineTouchData(
               touchTooltipData: LineTouchTooltipData(
                 getTooltipItems: (List<LineBarSpot> touchedSpots) {
@@ -528,6 +614,110 @@ class TapeDailyChartController extends ChangeNotifier {
 
 /////////////////////////////////////////////////////////////////
 
+class ValueCircleDotPainter extends FlDotPainter {
+  ValueCircleDotPainter({
+    required this.value,
+    required this.radius,
+    required this.fillColor,
+    required this.strokeColor,
+    required this.strokeWidth,
+    required this.textStyle,
+  });
+
+  final double value;
+  final double radius;
+
+  final Color fillColor;
+  final Color strokeColor;
+  final double strokeWidth;
+  final TextStyle textStyle;
+
+  // fl_chart のデフォルトUI用
+  @override
+  Color get mainColor => fillColor;
+
+  // equatable の stringify（任意だが明示しておく）
+  @override
+  bool? get stringify => false;
+
+  @override
+  List<Object?> get props => <Object?>[value, radius, fillColor, strokeColor, strokeWidth, textStyle];
+
+  @override
+  Size getSize(FlSpot spot) => Size(radius * 2, radius * 2);
+
+  @override
+  void draw(Canvas canvas, FlSpot spot, Offset offsetInCanvas) {
+    final Paint fill = Paint()..color = fillColor;
+    canvas.drawCircle(offsetInCanvas, radius, fill);
+
+    final Paint stroke = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..color = strokeColor;
+    canvas.drawCircle(offsetInCanvas, radius, stroke);
+
+    final String text = _compact(value);
+
+    final TextSpan span = TextSpan(text: text, style: textStyle);
+
+    final TextPainter tp = TextPainter(
+      text: span,
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout(maxWidth: radius * 2 - 2);
+
+    final Offset textOffset = offsetInCanvas - Offset(tp.width / 2, tp.height / 2);
+    tp.paint(canvas, textOffset);
+  }
+
+  /// タッチ判定（円として扱う）
+  @override
+  bool hitTest(FlSpot spot, Offset touched, Offset center, double extraThreshold) {
+    final double dx = touched.dx - center.dx;
+    final double dy = touched.dy - center.dy;
+    final double dist2 = dx * dx + dy * dy;
+    final double r = radius + extraThreshold;
+    return dist2 <= r * r;
+  }
+
+  /// fl_chart のアニメーション補間で必須（バージョンによっては abstract 扱い）
+  @override
+  FlDotPainter lerp(covariant FlDotPainter a, covariant FlDotPainter b, double t) {
+    if (a is! ValueCircleDotPainter || b is! ValueCircleDotPainter) {
+      return t < 0.5 ? a : b;
+    }
+
+    return ValueCircleDotPainter(
+      value: _lerpDouble(a.value, b.value, t),
+      radius: _lerpDouble(a.radius, b.radius, t),
+      fillColor: Color.lerp(a.fillColor, b.fillColor, t) ?? b.fillColor,
+      strokeColor: Color.lerp(a.strokeColor, b.strokeColor, t) ?? b.strokeColor,
+      strokeWidth: _lerpDouble(a.strokeWidth, b.strokeWidth, t),
+      textStyle: TextStyle.lerp(a.textStyle, b.textStyle, t) ?? b.textStyle,
+    );
+  }
+
+  String _compact(double v) {
+    final int n = v.toInt().abs();
+
+    if (n >= 100000000) {
+      final double x = v / 100000000.0;
+      return '${x.toStringAsFixed(1)}億';
+    }
+    if (n >= 10000) {
+      final double x = v / 10000.0;
+      return '${x.toStringAsFixed(1)}万';
+    }
+    return v.toInt().toString();
+  }
+
+  double _lerpDouble(double a, double b, double t) => a + (b - a) * t;
+}
+
+/////////////////////////////////////////////////////////////////
+
 class TapeChartFrame extends StatelessWidget {
   const TapeChartFrame({
     required this.child,
@@ -567,6 +757,7 @@ class _HeaderDaily extends StatelessWidget {
     required this.minY,
     required this.maxY,
     required this.tooltipEnabled,
+    required this.tooltipSwitchEnabled,
     required this.onToggleTooltip,
   });
 
@@ -578,6 +769,7 @@ class _HeaderDaily extends StatelessWidget {
   final double maxY;
 
   final bool tooltipEnabled;
+  final bool tooltipSwitchEnabled;
   final ValueChanged<bool> onToggleTooltip;
 
   ///
@@ -601,8 +793,15 @@ class _HeaderDaily extends StatelessWidget {
             children: <Widget>[
               const Text('値の箱（ツールチップ）', style: TextStyle(fontSize: 12)),
               const SizedBox(width: 8),
-              Switch(value: tooltipEnabled, onChanged: onToggleTooltip),
-              Text(tooltipEnabled ? '表示' : '非表示', style: const TextStyle(fontSize: 12)),
+              Switch(
+                // ignore: avoid_bool_literals_in_conditional_expressions
+                value: tooltipSwitchEnabled ? tooltipEnabled : false,
+                onChanged: tooltipSwitchEnabled ? onToggleTooltip : null,
+              ),
+              Text(
+                tooltipSwitchEnabled ? (tooltipEnabled ? '表示' : '非表示') : '拡大中は無効',
+                style: const TextStyle(fontSize: 12),
+              ),
             ],
           ),
         ],
@@ -628,6 +827,32 @@ class _FooterDaily extends StatelessWidget {
       children: <Widget>[
         OutlinedButton(onPressed: onReset, child: const Text('先頭へ')),
         OutlinedButton(onPressed: onToToday, child: const Text('今日付近へ')),
+      ],
+    );
+  }
+}
+
+/////////////////////////////////////////////////////////////////
+
+class _ZoomBar extends StatelessWidget {
+  const _ZoomBar({required this.zoomMode, required this.onToggleZoom, required this.onResetTransform});
+
+  final bool zoomMode;
+  final VoidCallback onToggleZoom;
+  final VoidCallback? onResetTransform;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: <Widget>[
+        if (zoomMode) IconButton(onPressed: onResetTransform, icon: const Icon(Icons.lock_reset), tooltip: '拡大リセット'),
+        IconButton(
+          onPressed: onToggleZoom,
+          icon: Icon(Icons.expand, color: zoomMode ? Colors.orange : Colors.black),
+          tooltip: zoomMode ? '拡大OFF' : '拡大ON',
+        ),
+        const SizedBox(width: 8),
+        Expanded(child: Text(zoomMode ? 'ピンチ拡大：ON（ツールチップOFF・値円表示）' : 'ピンチ拡大：OFF（テープドラッグ）')),
       ],
     );
   }
