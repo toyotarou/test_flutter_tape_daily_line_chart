@@ -40,6 +40,9 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
 
   late final List<DateTime> _monthStarts;
 
+  LineChartData graphData = LineChartData();
+  LineChartData graphData2 = LineChartData();
+
   ///
   @override
   void initState() {
@@ -65,32 +68,13 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
   ///
   @override
   Widget build(BuildContext context) {
+    setChartData();
+
     final double minX = _clampStartIndex(_startIndex);
     final double maxX = minX + (_windowDays - 1).toDouble();
 
     final DateTime startDt = _dateFromIndex(minX.round());
     final DateTime endDt = _dateFromIndex(maxX.round());
-
-    final List<FlSpot> visibleSpots = _extractVisibleSpots(
-      all: _allSpots,
-      minX: minX,
-      maxX: maxX,
-      extendLastValue: true,
-    );
-
-    final List<VerticalLine> monthLines = _buildMonthBoundaryLines(minX: minX, maxX: maxX);
-
-    final Color lineColor = Theme.of(context).colorScheme.primary;
-
-    final LineChartData backData = _buildBackChartData(minX: minX, maxX: maxX, monthLines: monthLines);
-
-    final LineChartData frontData = _buildFrontChartData(
-      minX: minX,
-      maxX: maxX,
-      spots: visibleSpots,
-      lineColor: lineColor,
-      tooltipEnabled: _tooltipEnabled,
-    );
 
     final bool dragEnabled = !_tooltipEnabled;
 
@@ -128,14 +112,14 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                       children: <Widget>[
                         Positioned.fill(
                           child: LineChart(
-                            backData,
+                            graphData2,
                             duration: const Duration(milliseconds: 120),
                             curve: Curves.easeOut,
                           ),
                         ),
                         Positioned.fill(
                           child: LineChart(
-                            frontData,
+                            graphData,
                             duration: const Duration(milliseconds: 120),
                             curve: Curves.easeOut,
                           ),
@@ -205,12 +189,73 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
   }
 
   ///
-  LineChartData _buildBackChartData({
-    required double minX,
-    required double maxX,
-    required List<VerticalLine> monthLines,
-  }) {
-    return LineChartData(
+  void setChartData() {
+    final double minX = _clampStartIndex(_startIndex);
+    final double maxX = minX + (_windowDays - 1).toDouble();
+
+    final List<FlSpot> visibleSpots = _extractVisibleSpots(
+      all: _allSpots,
+      minX: minX,
+      maxX: maxX,
+      extendLastValue: true,
+    );
+
+    final List<VerticalLine> monthLines = _buildMonthBoundaryLines(minX: minX, maxX: maxX);
+
+    final Color lineColor = Theme.of(context).colorScheme.primary;
+
+    graphData = LineChartData(
+      minX: minX,
+      maxX: maxX,
+      minY: _fixedMinY,
+      maxY: _fixedMaxY,
+      titlesData: FlTitlesData(
+        topTitles: const AxisTitles(),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 34,
+            interval: 1,
+            getTitlesWidget: (_, __) => const SizedBox.shrink(),
+          ),
+        ),
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            interval: _fixedIntervalY,
+            getTitlesWidget: (_, __) => const SizedBox.shrink(),
+          ),
+        ),
+        rightTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            interval: _fixedIntervalY,
+            getTitlesWidget: (_, __) => const SizedBox.shrink(),
+          ),
+        ),
+      ),
+      gridData: const FlGridData(show: false),
+      borderData: FlBorderData(show: false),
+      lineBarsData: <LineChartBarData>[
+        LineChartBarData(color: lineColor, spots: visibleSpots, barWidth: 3, dotData: const FlDotData(show: false)),
+      ],
+      lineTouchData: _tooltipEnabled
+          ? LineTouchData(
+              touchTooltipData: LineTouchTooltipData(
+                getTooltipItems: (List<LineBarSpot> touchedSpots) {
+                  return touchedSpots.map((LineBarSpot s) {
+                    final DateTime dt = _dateFromIndex(s.x.round());
+                    final String title = '${dt.year}/${dt.month}/${dt.day}';
+                    final String val = s.y.toInt().toString();
+                    return LineTooltipItem('$title\n$val', const TextStyle(fontSize: 12));
+                  }).toList();
+                },
+              ),
+            )
+          : const LineTouchData(enabled: false, handleBuiltInTouches: false),
+    );
+
+    graphData2 = LineChartData(
       minX: minX,
       maxX: maxX,
       minY: _fixedMinY,
@@ -255,66 +300,6 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
           ),
         ),
       ),
-    );
-  }
-
-  ///
-  LineChartData _buildFrontChartData({
-    required double minX,
-    required double maxX,
-    required List<FlSpot> spots,
-    required Color lineColor,
-    required bool tooltipEnabled,
-  }) {
-    return LineChartData(
-      minX: minX,
-      maxX: maxX,
-      minY: _fixedMinY,
-      maxY: _fixedMaxY,
-      titlesData: FlTitlesData(
-        topTitles: const AxisTitles(),
-        bottomTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 34,
-            interval: 1,
-            getTitlesWidget: (_, __) => const SizedBox.shrink(),
-          ),
-        ),
-        leftTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            interval: _fixedIntervalY,
-            getTitlesWidget: (_, __) => const SizedBox.shrink(),
-          ),
-        ),
-        rightTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            interval: _fixedIntervalY,
-            getTitlesWidget: (_, __) => const SizedBox.shrink(),
-          ),
-        ),
-      ),
-      gridData: const FlGridData(show: false),
-      borderData: FlBorderData(show: false),
-      lineBarsData: <LineChartBarData>[
-        LineChartBarData(color: lineColor, spots: spots, barWidth: 3, dotData: const FlDotData(show: false)),
-      ],
-      lineTouchData: tooltipEnabled
-          ? LineTouchData(
-              touchTooltipData: LineTouchTooltipData(
-                getTooltipItems: (List<LineBarSpot> touchedSpots) {
-                  return touchedSpots.map((LineBarSpot s) {
-                    final DateTime dt = _dateFromIndex(s.x.round());
-                    final String title = '${dt.year}/${dt.month}/${dt.day}';
-                    final String val = s.y.toInt().toString();
-                    return LineTooltipItem('$title\n$val', const TextStyle(fontSize: 12));
-                  }).toList();
-                },
-              ),
-            )
-          : const LineTouchData(enabled: false, handleBuiltInTouches: false),
     );
   }
 
