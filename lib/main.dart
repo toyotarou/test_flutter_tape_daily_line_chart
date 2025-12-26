@@ -18,65 +18,55 @@ class TapeDailyLineChartDemoPage extends StatefulWidget {
 }
 
 class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage> {
-  static final DateTime _startDate = DateTime(2023);
-
-  static const int _windowDays = 30;
-
-  static const double _pixelsPerDay = 16.0;
-
-  static const double _fixedMinY = 0;
-  static const double _fixedMaxY = 30000000;
-
-  static const double _fixedIntervalY = 1000000;
-
-  late final DateTime _todayJst;
-  late final List<FlSpot> _allSpots;
-  late final int _maxIndex;
-
-  double _startIndex = 0;
-  double _dragAccumDx = 0;
-
-  bool _tooltipEnabled = false;
-
-  late final List<DateTime> _monthStarts;
-
-  LineChartData graphData = LineChartData();
-  LineChartData graphData2 = LineChartData();
+  late final TapeDailyChartController controller;
 
   ///
   @override
   void initState() {
     super.initState();
 
-    final DateTime now = DateTime.now();
-    _todayJst = DateTime(now.year, now.month, now.day);
-
-    _allSpots = _makeDailyDemoSpotsFixedRangeWavy(
-      start: _startDate,
-      endInclusive: _todayJst,
+    controller = TapeDailyChartController(
+      startDate: DateTime(2023),
+      windowDays: 30,
+      pixelsPerDay: 16.0,
+      fixedMinY: 0,
+      fixedMaxY: 30000000,
+      fixedIntervalY: 1000000,
       seed: 2023,
-      minY: _fixedMinY,
-      maxY: _fixedMaxY,
-    );
+    )..init();
 
-    _maxIndex = _allSpots.isEmpty ? 0 : _allSpots.last.x.floor();
-    _startIndex = 0;
+    controller.addListener(_onControllerChanged);
+  }
 
-    _monthStarts = _buildMonthStarts(start: _startDate, endInclusive: _todayJst);
+  ///
+  void _onControllerChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+  }
+
+  ///
+  @override
+  void dispose() {
+    controller.removeListener(_onControllerChanged);
+    controller.dispose();
+    super.dispose();
   }
 
   ///
   @override
   Widget build(BuildContext context) {
-    setChartData();
+    final double minX = controller.minX;
+    final double maxX = controller.maxX;
 
-    final double minX = _clampStartIndex(_startIndex);
-    final double maxX = minX + (_windowDays - 1).toDouble();
+    final DateTime startDt = controller.dateFromIndex(minX.round());
+    final DateTime endDt = controller.dateFromIndex(maxX.round());
 
-    final DateTime startDt = _dateFromIndex(minX.round());
-    final DateTime endDt = _dateFromIndex(maxX.round());
+    final bool dragEnabled = !controller.tooltipEnabled;
 
-    final bool dragEnabled = !_tooltipEnabled;
+    final LineChartData backData = controller.buildBackData();
+    final LineChartData frontData = controller.buildFrontData(context);
 
     return Scaffold(
       body: SafeArea(
@@ -87,39 +77,35 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
               _HeaderDaily(
                 start: startDt,
                 end: endDt,
-                today: _todayJst,
-                windowDays: _windowDays,
-                minY: _fixedMinY,
-                maxY: _fixedMaxY,
-                tooltipEnabled: _tooltipEnabled,
-                onToggleTooltip: (bool v) => setState(() => _tooltipEnabled = v),
+                today: controller.todayJst,
+                windowDays: controller.windowDays,
+                minY: controller.fixedMinY,
+                maxY: controller.fixedMaxY,
+                tooltipEnabled: controller.tooltipEnabled,
+                onToggleTooltip: (bool v) => controller.setTooltipEnabled(v),
               ),
               const SizedBox(height: 12),
-              _FooterDaily(
-                onReset: () => setState(() => _startIndex = 0),
-                onToToday: () =>
-                    setState(() => _startIndex = _clampStartIndex((_maxIndex - (_windowDays - 1)).toDouble())),
-              ),
+              _FooterDaily(onReset: controller.resetToStart, onToToday: controller.jumpToTodayWindow),
               const SizedBox(height: 10),
               Expanded(
-                child: _TapeChartFrame(
+                child: TapeChartFrame(
                   dragEnabled: dragEnabled,
-                  onDragUpdate: _onDragUpdate,
-                  onDragEnd: _onDragEnd,
+                  onDragUpdate: controller.onDragUpdate,
+                  onDragEnd: controller.onDragEnd,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 25),
                     child: Stack(
                       children: <Widget>[
                         Positioned.fill(
                           child: LineChart(
-                            graphData2,
+                            backData,
                             duration: const Duration(milliseconds: 120),
                             curve: Curves.easeOut,
                           ),
                         ),
                         Positioned.fill(
                           child: LineChart(
-                            graphData,
+                            frontData,
                             duration: const Duration(milliseconds: 120),
                             curve: Curves.easeOut,
                           ),
@@ -130,12 +116,12 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                 ),
               ),
               const SizedBox(height: 10),
+
               _MonthJumpBar(
-                monthStarts: _monthStarts,
+                monthStarts: controller.monthStarts,
                 currentWindowStart: startDt,
                 onTapMonth: (DateTime monthStart) {
-                  final int dayIndex = monthStart.difference(_startDate).inDays;
-                  setState(() => _startIndex = _clampStartIndex(dayIndex.toDouble()));
+                  controller.jumpToMonth(monthStart);
                 },
               ),
             ],
@@ -144,36 +130,125 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
       ),
     );
   }
+}
+
+/////////////////////////////////////////////////////////////////
+
+class TapeDailyChartController extends ChangeNotifier {
+  TapeDailyChartController({
+    required this.startDate,
+    required this.windowDays,
+    required this.pixelsPerDay,
+    required this.fixedMinY,
+    required this.fixedMaxY,
+    required this.fixedIntervalY,
+    required this.seed,
+  });
+
+  final DateTime startDate;
+  final int windowDays;
+  final double pixelsPerDay;
+
+  final double fixedMinY;
+  final double fixedMaxY;
+  final double fixedIntervalY;
+
+  final int seed;
+
+  late final DateTime todayJst;
+  late final List<FlSpot> allSpots;
+  late final int maxIndex;
+
+  late final List<DateTime> monthStarts;
+
+  double startIndex = 0;
+  double dragAccumDx = 0;
+
+  bool tooltipEnabled = false;
 
   ///
-  void _onDragUpdate(DragUpdateDetails d) {
-    _dragAccumDx += d.delta.dx;
+  void init() {
+    final DateTime now = DateTime.now();
+    todayJst = DateTime(now.year, now.month, now.day);
 
-    while (_dragAccumDx <= -_pixelsPerDay) {
-      _dragAccumDx += _pixelsPerDay;
+    allSpots = _makeDailyDemoSpotsFixedRangeWavy(
+      start: startDate,
+      endInclusive: todayJst,
+      seed: seed,
+      minY: fixedMinY,
+      maxY: fixedMaxY,
+    );
+
+    maxIndex = allSpots.isEmpty ? 0 : allSpots.last.x.floor();
+    startIndex = 0;
+
+    monthStarts = _buildMonthStarts(start: startDate, endInclusive: todayJst);
+  }
+
+  ///
+  double get minX => _clampStartIndex(startIndex);
+
+  ///
+  double get maxX => minX + (windowDays - 1).toDouble();
+
+  ///
+  DateTime dateFromIndex(int dayIndex) => startDate.add(Duration(days: dayIndex));
+
+  ///
+  void setTooltipEnabled(bool v) {
+    tooltipEnabled = v;
+    dragAccumDx = 0;
+    notifyListeners();
+  }
+
+  ///
+  void resetToStart() {
+    startIndex = 0;
+    dragAccumDx = 0;
+    notifyListeners();
+  }
+
+  ///
+  void jumpToTodayWindow() {
+    startIndex = _clampStartIndex((maxIndex - (windowDays - 1)).toDouble());
+    dragAccumDx = 0;
+    notifyListeners();
+  }
+
+  ///
+  void jumpToMonth(DateTime monthStart) {
+    final int dayIndex = monthStart.difference(startDate).inDays;
+    startIndex = _clampStartIndex(dayIndex.toDouble());
+    dragAccumDx = 0;
+    notifyListeners();
+  }
+
+  ///
+  void onDragUpdate(DragUpdateDetails d) {
+    dragAccumDx += d.delta.dx;
+
+    while (dragAccumDx <= -pixelsPerDay) {
+      dragAccumDx += pixelsPerDay;
       _jumpDays(1);
     }
-    while (_dragAccumDx >= _pixelsPerDay) {
-      _dragAccumDx -= _pixelsPerDay;
+    while (dragAccumDx >= pixelsPerDay) {
+      dragAccumDx -= pixelsPerDay;
       _jumpDays(-1);
     }
   }
 
   ///
-  void _onDragEnd(DragEndDetails d) {
-    _dragAccumDx = 0;
-  }
+  void onDragEnd(DragEndDetails d) => dragAccumDx = 0;
 
   ///
   void _jumpDays(int deltaDays) {
-    setState(() {
-      _startIndex = _clampStartIndex(_startIndex + deltaDays);
-    });
+    startIndex = _clampStartIndex(startIndex + deltaDays);
+    notifyListeners();
   }
 
   ///
   double _clampStartIndex(double start) {
-    final int maxStart = math.max(0, _maxIndex - (_windowDays - 1));
+    final int maxStart = math.max(0, maxIndex - (windowDays - 1));
     if (start < 0) {
       return 0;
     }
@@ -184,31 +259,24 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
   }
 
   ///
-  DateTime _dateFromIndex(int dayIndex) {
-    return _startDate.add(Duration(days: dayIndex));
-  }
-
-  ///
-  void setChartData() {
-    final double minX = _clampStartIndex(_startIndex);
-    final double maxX = minX + (_windowDays - 1).toDouble();
+  LineChartData buildFrontData(BuildContext context) {
+    final double minX0 = minX;
+    final double maxX0 = maxX;
 
     final List<FlSpot> visibleSpots = _extractVisibleSpots(
-      all: _allSpots,
-      minX: minX,
-      maxX: maxX,
+      all: allSpots,
+      minX: minX0,
+      maxX: maxX0,
       extendLastValue: true,
     );
 
-    final List<VerticalLine> monthLines = _buildMonthBoundaryLines(minX: minX, maxX: maxX);
-
     final Color lineColor = Theme.of(context).colorScheme.primary;
 
-    graphData = LineChartData(
-      minX: minX,
-      maxX: maxX,
-      minY: _fixedMinY,
-      maxY: _fixedMaxY,
+    return LineChartData(
+      minX: minX0,
+      maxX: maxX0,
+      minY: fixedMinY,
+      maxY: fixedMaxY,
       titlesData: FlTitlesData(
         topTitles: const AxisTitles(),
         bottomTitles: AxisTitles(
@@ -222,14 +290,14 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
         leftTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
-            interval: _fixedIntervalY,
+            interval: fixedIntervalY,
             getTitlesWidget: (_, __) => const SizedBox.shrink(),
           ),
         ),
         rightTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
-            interval: _fixedIntervalY,
+            interval: fixedIntervalY,
             getTitlesWidget: (_, __) => const SizedBox.shrink(),
           ),
         ),
@@ -239,12 +307,12 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
       lineBarsData: <LineChartBarData>[
         LineChartBarData(color: lineColor, spots: visibleSpots, barWidth: 3, dotData: const FlDotData(show: false)),
       ],
-      lineTouchData: _tooltipEnabled
+      lineTouchData: tooltipEnabled
           ? LineTouchData(
               touchTooltipData: LineTouchTooltipData(
                 getTooltipItems: (List<LineBarSpot> touchedSpots) {
                   return touchedSpots.map((LineBarSpot s) {
-                    final DateTime dt = _dateFromIndex(s.x.round());
+                    final DateTime dt = dateFromIndex(s.x.round());
                     final String title = '${dt.year}/${dt.month}/${dt.day}';
                     final String val = s.y.toInt().toString();
                     return LineTooltipItem('$title\n$val', const TextStyle(fontSize: 12));
@@ -254,14 +322,22 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
             )
           : const LineTouchData(enabled: false, handleBuiltInTouches: false),
     );
+  }
 
-    graphData2 = LineChartData(
-      minX: minX,
-      maxX: maxX,
-      minY: _fixedMinY,
-      maxY: _fixedMaxY,
+  ///
+  LineChartData buildBackData() {
+    final double minX0 = minX;
+    final double maxX0 = maxX;
+
+    final List<VerticalLine> monthLines = _buildMonthBoundaryLines(minX: minX0, maxX: maxX0);
+
+    return LineChartData(
+      minX: minX0,
+      maxX: maxX0,
+      minY: fixedMinY,
+      maxY: fixedMaxY,
       lineTouchData: const LineTouchData(enabled: false, handleBuiltInTouches: false),
-      gridData: const FlGridData(verticalInterval: 1, horizontalInterval: _fixedIntervalY),
+      gridData: FlGridData(verticalInterval: 1, horizontalInterval: fixedIntervalY),
       extraLinesData: ExtraLinesData(verticalLines: monthLines),
       borderData: FlBorderData(show: false),
       titlesData: FlTitlesData(
@@ -271,9 +347,9 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
           sideTitles: SideTitles(
             showTitles: true,
             reservedSize: 60,
-            interval: _fixedIntervalY,
+            interval: fixedIntervalY,
             getTitlesWidget: (double value, TitleMeta meta) {
-              if (value == _fixedMinY || value == _fixedMaxY) {
+              if (value == fixedMinY || value == fixedMaxY) {
                 return const SizedBox.shrink();
               }
               return Padding(
@@ -287,9 +363,9 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
           sideTitles: SideTitles(
             showTitles: true,
             reservedSize: 60,
-            interval: _fixedIntervalY,
+            interval: fixedIntervalY,
             getTitlesWidget: (double value, TitleMeta meta) {
-              if (value == _fixedMinY || value == _fixedMaxY) {
+              if (value == fixedMinY || value == fixedMaxY) {
                 return const SizedBox.shrink();
               }
               return Padding(
@@ -307,8 +383,8 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
   List<VerticalLine> _buildMonthBoundaryLines({required double minX, required double maxX}) {
     final List<VerticalLine> lines = <VerticalLine>[];
 
-    final DateTime minDt = _dateFromIndex(minX.floor());
-    final DateTime maxDt = _dateFromIndex(maxX.ceil());
+    final DateTime minDt = dateFromIndex(minX.floor());
+    final DateTime maxDt = dateFromIndex(maxX.ceil());
 
     DateTime cursor = DateTime(minDt.year, minDt.month);
     if (cursor.isBefore(minDt)) {
@@ -316,7 +392,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
     }
 
     while (!cursor.isAfter(maxDt)) {
-      final double x = cursor.difference(_startDate).inDays.toDouble();
+      final double x = cursor.difference(startDate).inDays.toDouble();
       lines.add(
         VerticalLine(
           x: x,
@@ -336,7 +412,8 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
     return lines;
   }
 
-  List<DateTime> _buildMonthStarts({required DateTime start, required DateTime endInclusive}) {
+  ///
+  static List<DateTime> _buildMonthStarts({required DateTime start, required DateTime endInclusive}) {
     final List<DateTime> list = <DateTime>[];
     DateTime cursor = DateTime(start.year, start.month);
     final DateTime endMonth = DateTime(endInclusive.year, endInclusive.month);
@@ -346,6 +423,121 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
       cursor = DateTime(cursor.year, cursor.month + 1);
     }
     return list;
+  }
+
+  ///
+  static List<FlSpot> _extractVisibleSpots({
+    required List<FlSpot> all,
+    required double minX,
+    required double maxX,
+    required bool extendLastValue,
+  }) {
+    final int minI = minX.floor();
+    final int maxI = maxX.ceil();
+
+    final Map<int, double> byX = <int, double>{};
+    for (final FlSpot s in all) {
+      byX[s.x.round()] = s.y;
+    }
+
+    final List<FlSpot> visible = <FlSpot>[];
+    double? lastY;
+
+    for (int x = minI; x <= maxI; x++) {
+      final double? y = byX[x];
+      if (y != null) {
+        lastY = y;
+        visible.add(FlSpot(x.toDouble(), y));
+      } else if (extendLastValue && lastY != null) {
+        visible.add(FlSpot(x.toDouble(), lastY));
+      }
+    }
+
+    return visible;
+  }
+
+  ///
+  static List<FlSpot> _makeDailyDemoSpotsFixedRangeWavy({
+    required DateTime start,
+    required DateTime endInclusive,
+    required int seed,
+    required double minY,
+    required double maxY,
+  }) {
+    final int days = endInclusive.difference(start).inDays;
+    final math.Random rand = math.Random(seed);
+
+    final List<FlSpot> spots = <FlSpot>[];
+
+    final double range = maxY - minY;
+    final double mid = (minY + maxY) / 2;
+
+    final double ampYear = range * 0.35;
+    final double ampWeek = range * 0.18;
+    final double ampShort1 = range * 0.10;
+    final double ampShort2 = range * 0.07;
+
+    final double noiseAmp = range * 0.08;
+
+    const double smoothing = 0.55;
+
+    double value = mid;
+
+    for (int i = 0; i <= days; i++) {
+      final double yearly = math.sin(2 * math.pi * (i / 365.0));
+      final double weekly = math.sin(2 * math.pi * (i / 7.0));
+      final double short1 = math.sin(2 * math.pi * (i / 2.6));
+      final double short2 = math.sin(2 * math.pi * (i / 4.3));
+
+      final double noise = (rand.nextDouble() - 0.5) * noiseAmp;
+
+      double target = mid + yearly * ampYear + weekly * ampWeek + short1 * ampShort1 + short2 * ampShort2 + noise;
+
+      if (rand.nextDouble() < 0.12) {
+        final double jump = (rand.nextDouble() - 0.5) * range * 0.25;
+        target += jump;
+      }
+
+      final double bias = (rand.nextDouble() - 0.5) * range * 0.03;
+      target += bias;
+
+      value = value + (target - value) * smoothing;
+      value = value.clamp(minY, maxY);
+
+      spots.add(FlSpot(i.toDouble(), value));
+    }
+
+    return spots;
+  }
+}
+
+/////////////////////////////////////////////////////////////////
+
+class TapeChartFrame extends StatelessWidget {
+  const TapeChartFrame({
+    required this.child,
+    required this.onDragUpdate,
+    required this.onDragEnd,
+    required this.dragEnabled,
+    super.key,
+  });
+
+  final Widget child;
+  final void Function(DragUpdateDetails) onDragUpdate;
+  final void Function(DragEndDetails) onDragEnd;
+  final bool dragEnabled;
+
+  ///
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: GestureDetector(
+        onHorizontalDragUpdate: dragEnabled ? onDragUpdate : null,
+        onHorizontalDragEnd: dragEnabled ? onDragEnd : null,
+        child: Stack(children: <Widget>[Positioned.fill(child: child)]),
+      ),
+    );
   }
 }
 
@@ -428,7 +620,7 @@ class _FooterDaily extends StatelessWidget {
 
 /////////////////////////////////////////////////////////////////
 
-class _MonthJumpBar extends StatelessWidget {
+class _MonthJumpBar extends StatefulWidget {
   const _MonthJumpBar({required this.monthStarts, required this.currentWindowStart, required this.onTapMonth});
 
   final List<DateTime> monthStarts;
@@ -436,17 +628,85 @@ class _MonthJumpBar extends StatelessWidget {
   final ValueChanged<DateTime> onTapMonth;
 
   @override
+  State<_MonthJumpBar> createState() => _MonthJumpBarState();
+}
+
+class _MonthJumpBarState extends State<_MonthJumpBar> {
+  final ScrollController _sc = ScrollController();
+
+  static const double _estimatedChipWidth = 92.0;
+  static const double _estimatedGap = 12.0;
+
+  ///
+  @override
+  void didUpdateWidget(covariant _MonthJumpBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final DateTime oldMonth = DateTime(oldWidget.currentWindowStart.year, oldWidget.currentWindowStart.month);
+    final DateTime newMonth = DateTime(widget.currentWindowStart.year, widget.currentWindowStart.month);
+
+    if (oldMonth.year != newMonth.year || oldMonth.month != newMonth.month) {
+      _scrollToSelectedMonth(newMonth, animate: true);
+    }
+  }
+
+  ///
+  @override
+  void initState() {
+    super.initState();
+    final DateTime currentMonth = DateTime(widget.currentWindowStart.year, widget.currentWindowStart.month);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollToSelectedMonth(currentMonth, animate: false);
+    });
+  }
+
+  ///
+  void _scrollToSelectedMonth(DateTime selectedMonthStart, {required bool animate}) {
+    final int idx = widget.monthStarts.indexWhere(
+      (DateTime m) => m.year == selectedMonthStart.year && m.month == selectedMonthStart.month,
+    );
+    if (idx < 0) {
+      return;
+    }
+    if (!_sc.hasClients) {
+      return;
+    }
+
+    final double target =
+        idx * (_estimatedChipWidth + _estimatedGap) -
+        (MediaQuery.of(context).size.width / 2) +
+        (_estimatedChipWidth / 2);
+
+    final double clamped = target.clamp(0.0, _sc.position.maxScrollExtent);
+
+    if (animate) {
+      _sc.animateTo(clamped, duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+    } else {
+      _sc.jumpTo(clamped);
+    }
+  }
+
+  ///
+  @override
+  void dispose() {
+    _sc.dispose();
+    super.dispose();
+  }
+
+  ///
+  @override
   Widget build(BuildContext context) {
-    final DateTime currentMonthStart = DateTime(currentWindowStart.year, currentWindowStart.month);
+    final DateTime currentMonthStart = DateTime(widget.currentWindowStart.year, widget.currentWindowStart.month);
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all()),
       child: SingleChildScrollView(
+        controller: _sc,
         scrollDirection: Axis.horizontal,
         child: Row(
-          children: monthStarts.map((DateTime m) {
+          children: widget.monthStarts.map((DateTime m) {
             final bool selected = m.year == currentMonthStart.year && m.month == currentMonthStart.month;
             final String label = '${m.year}/${m.month.toString().padLeft(2, '0')}';
 
@@ -455,7 +715,7 @@ class _MonthJumpBar extends StatelessWidget {
               child: ChoiceChip(
                 label: Text(label, style: const TextStyle(fontSize: 12)),
                 selected: selected,
-                onSelected: (_) => onTapMonth(m),
+                onSelected: (_) => widget.onTapMonth(m),
               ),
             );
           }).toList(),
@@ -463,122 +723,4 @@ class _MonthJumpBar extends StatelessWidget {
       ),
     );
   }
-}
-
-/////////////////////////////////////////////////////////////////
-
-class _TapeChartFrame extends StatelessWidget {
-  const _TapeChartFrame({
-    required this.child,
-    required this.onDragUpdate,
-    required this.onDragEnd,
-    required this.dragEnabled,
-  });
-
-  final Widget child;
-  final void Function(DragUpdateDetails) onDragUpdate;
-  final void Function(DragEndDetails) onDragEnd;
-  final bool dragEnabled;
-
-  ///
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: GestureDetector(
-        onHorizontalDragUpdate: dragEnabled ? onDragUpdate : null,
-        onHorizontalDragEnd: dragEnabled ? onDragEnd : null,
-
-        /// Stack必要
-        child: Stack(children: <Widget>[Positioned.fill(child: child)]),
-      ),
-    );
-  }
-}
-
-/////////////////////////////////////////////////////////////////
-
-List<FlSpot> _extractVisibleSpots({
-  required List<FlSpot> all,
-  required double minX,
-  required double maxX,
-  required bool extendLastValue,
-}) {
-  final int minI = minX.floor();
-  final int maxI = maxX.ceil();
-
-  final Map<int, double> byX = <int, double>{};
-  for (final FlSpot s in all) {
-    byX[s.x.round()] = s.y;
-  }
-
-  final List<FlSpot> visible = <FlSpot>[];
-  double? lastY;
-
-  for (int x = minI; x <= maxI; x++) {
-    final double? y = byX[x];
-    if (y != null) {
-      lastY = y;
-      visible.add(FlSpot(x.toDouble(), y));
-    } else if (extendLastValue && lastY != null) {
-      visible.add(FlSpot(x.toDouble(), lastY));
-    }
-  }
-
-  return visible;
-}
-
-/////////////////////////////////////////////////////////////////
-
-List<FlSpot> _makeDailyDemoSpotsFixedRangeWavy({
-  required DateTime start,
-  required DateTime endInclusive,
-  required int seed,
-  required double minY,
-  required double maxY,
-}) {
-  final int days = endInclusive.difference(start).inDays;
-  final math.Random rand = math.Random(seed);
-
-  final List<FlSpot> spots = <FlSpot>[];
-
-  final double range = maxY - minY;
-  final double mid = (minY + maxY) / 2;
-
-  final double ampYear = range * 0.35;
-  final double ampWeek = range * 0.18;
-  final double ampShort1 = range * 0.10;
-  final double ampShort2 = range * 0.07;
-
-  final double noiseAmp = range * 0.08;
-
-  const double smoothing = 0.55;
-
-  double value = mid;
-
-  for (int i = 0; i <= days; i++) {
-    final double yearly = math.sin(2 * math.pi * (i / 365.0));
-    final double weekly = math.sin(2 * math.pi * (i / 7.0));
-    final double short1 = math.sin(2 * math.pi * (i / 2.6));
-    final double short2 = math.sin(2 * math.pi * (i / 4.3));
-
-    final double noise = (rand.nextDouble() - 0.5) * noiseAmp;
-
-    double target = mid + yearly * ampYear + weekly * ampWeek + short1 * ampShort1 + short2 * ampShort2 + noise;
-
-    if (rand.nextDouble() < 0.12) {
-      final double jump = (rand.nextDouble() - 0.5) * range * 0.25;
-      target += jump;
-    }
-
-    final double bias = (rand.nextDouble() - 0.5) * range * 0.03;
-    target += bias;
-
-    value = value + (target - value) * smoothing;
-    value = value.clamp(minY, maxY);
-
-    spots.add(FlSpot(i.toDouble(), value));
-  }
-
-  return spots;
 }
