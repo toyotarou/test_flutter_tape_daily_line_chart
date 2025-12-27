@@ -1,17 +1,55 @@
-// main.dart
 import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 void main() {
-  runApp(const MaterialApp(debugShowCheckedModeBanner: false, home: TapeDailyLineChartDemoPage()));
+  runApp(
+    MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: TapeDailyLineChartDemoPage(
+        startDate: DateTime(2023),
+        windowDays: 30,
+        pixelsPerDay: 16.0,
+        fixedMinY: 0,
+        fixedMaxY: 30000000,
+        fixedIntervalY: 1000000,
+        seed: 2023,
+        labelShowScaleThreshold: 3.0,
+      ),
+    ),
+  );
 }
 
 /////////////////////////////////////////////////////////////////
 
 class TapeDailyLineChartDemoPage extends StatefulWidget {
-  const TapeDailyLineChartDemoPage({super.key});
+  const TapeDailyLineChartDemoPage({
+    super.key,
+    required this.startDate,
+    required this.windowDays,
+    required this.pixelsPerDay,
+    required this.fixedMinY,
+    required this.fixedMaxY,
+    required this.fixedIntervalY,
+    required this.seed,
+    required this.labelShowScaleThreshold,
+    this.dataSpots,
+  });
+
+  final DateTime startDate;
+  final int windowDays;
+  final double pixelsPerDay;
+
+  final double fixedMinY;
+  final double fixedMaxY;
+  final double fixedIntervalY;
+
+  final int seed;
+
+  final double labelShowScaleThreshold;
+
+  final List<FlSpot>? dataSpots;
 
   @override
   State<TapeDailyLineChartDemoPage> createState() => _TapeDailyLineChartDemoPageState();
@@ -22,22 +60,27 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
 
   final TransformationController _transformationController = TransformationController();
 
+  bool _showPointLabels = false;
+
   ///
   @override
   void initState() {
     super.initState();
 
     tapeDailyChartController = TapeDailyChartController(
-      startDate: DateTime(2023),
-      windowDays: 30,
-      pixelsPerDay: 16.0,
-      fixedMinY: 0,
-      fixedMaxY: 30000000,
-      fixedIntervalY: 1000000,
-      seed: 2023,
+      startDate: widget.startDate,
+      windowDays: widget.windowDays,
+      pixelsPerDay: widget.pixelsPerDay,
+      fixedMinY: widget.fixedMinY,
+      fixedMaxY: widget.fixedMaxY,
+      fixedIntervalY: widget.fixedIntervalY,
+      seed: widget.seed,
+      dataSpots: widget.dataSpots,
     )..init();
 
     tapeDailyChartController.addListener(_onControllerChanged);
+
+    _transformationController.addListener(_onTransformChanged);
   }
 
   ///
@@ -49,10 +92,28 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
   }
 
   ///
+  void _onTransformChanged() {
+    if (!tapeDailyChartController.zoomMode) {
+      return;
+    }
+
+    final double scale = _transformationController.value.getMaxScaleOnAxis();
+
+    final bool shouldShow = scale >= widget.labelShowScaleThreshold;
+
+    if (shouldShow != _showPointLabels) {
+      setState(() {
+        _showPointLabels = shouldShow;
+      });
+    }
+  }
+
+  ///
   @override
   void dispose() {
     tapeDailyChartController.removeListener(_onControllerChanged);
     tapeDailyChartController.dispose();
+    _transformationController.removeListener(_onTransformChanged);
     _transformationController.dispose();
     super.dispose();
   }
@@ -66,11 +127,10 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
     final DateTime startDt = tapeDailyChartController.dateFromIndex(minX.round());
     final DateTime endDt = tapeDailyChartController.dateFromIndex(maxX.round());
 
-    // 拡大中はテープドラッグを止める（ピンチ＆パンを優先）
-    final bool dragEnabled = !tapeDailyChartController.zoomMode;
+    final bool dragEnabled = !tapeDailyChartController.zoomMode && !tapeDailyChartController.tooltipEnabled;
 
     final LineChartData backData = tapeDailyChartController.buildBackData();
-    final LineChartData frontData = tapeDailyChartController.buildFrontData(context);
+    final LineChartData frontData = tapeDailyChartController.buildFrontData(context, showPointLabels: _showPointLabels);
 
     return Scaffold(
       body: SafeArea(
@@ -93,32 +153,38 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
               _FooterDaily(
                 onReset: () {
                   _transformationController.value = Matrix4.identity();
+                  _showPointLabels = false;
                   tapeDailyChartController.resetToStart();
                 },
                 onToToday: () {
                   _transformationController.value = Matrix4.identity();
+                  _showPointLabels = false;
                   tapeDailyChartController.jumpToTodayWindow();
                 },
               ),
               const SizedBox(height: 10),
-
-              /// 拡大ON/OFF + リセット
               _ZoomBar(
                 zoomMode: tapeDailyChartController.zoomMode,
                 onToggleZoom: () {
                   final bool next = !tapeDailyChartController.zoomMode;
+
                   if (!next) {
                     _transformationController.value = Matrix4.identity();
+                    _showPointLabels = false;
                   }
+
                   tapeDailyChartController.setZoomMode(next);
                 },
                 onResetTransform: tapeDailyChartController.zoomMode
-                    ? () => _transformationController.value = Matrix4.identity()
+                    ? () {
+                        _transformationController.value = Matrix4.identity();
+                        setState(() {
+                          _showPointLabels = false;
+                        });
+                      }
                     : null,
               ),
-
               const SizedBox(height: 10),
-
               Expanded(
                 child: TapeChartFrame(
                   dragEnabled: dragEnabled,
@@ -140,6 +206,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                 currentWindowStart: startDt,
                 onTapMonth: (DateTime monthStart) {
                   _transformationController.value = Matrix4.identity();
+                  _showPointLabels = false;
                   tapeDailyChartController.jumpToMonth(monthStart);
                 },
               ),
@@ -200,8 +267,6 @@ class TapeDailyChartController extends ChangeNotifier {
 
   final int seed;
 
-  /// 外部注入（Riverpod等で取得した値を渡す）
-  /// x: startDateからの経過日数（0,1,2...）
   final List<FlSpot>? dataSpots;
 
   late final DateTime todayJst;
@@ -215,7 +280,6 @@ class TapeDailyChartController extends ChangeNotifier {
 
   bool tooltipEnabled = false;
 
-  /// ★拡大モード（ピンチ）
   bool zoomMode = false;
 
   ///
@@ -267,7 +331,6 @@ class TapeDailyChartController extends ChangeNotifier {
   void setZoomMode(bool v) {
     zoomMode = v;
 
-    // 拡大中はツールチップを必ずオフ（要求仕様）
     dragAccumDx = 0;
     notifyListeners();
   }
@@ -297,7 +360,11 @@ class TapeDailyChartController extends ChangeNotifier {
   ///
   void onDragUpdate(DragUpdateDetails d) {
     if (zoomMode) {
-      return; // ピンチ優先
+      return;
+    }
+
+    if (tooltipEnabled) {
+      return;
     }
 
     dragAccumDx += d.delta.dx;
@@ -334,7 +401,7 @@ class TapeDailyChartController extends ChangeNotifier {
   }
 
   ///
-  LineChartData buildFrontData(BuildContext context) {
+  LineChartData buildFrontData(BuildContext context, {required bool showPointLabels}) {
     final double minX0 = minX;
     final double maxX0 = maxX;
 
@@ -387,27 +454,22 @@ class TapeDailyChartController extends ChangeNotifier {
           spots: visibleSpots,
           barWidth: 3,
           isStrokeCapRound: true,
-
-          // ★拡大中は「値入りの円形」を表示
           dotData: zoomMode
               ? FlDotData(
-                  checkToShowDot: (FlSpot _, LineChartBarData __) => true,
-                  getDotPainter: (FlSpot spot, double xPercentage, LineChartBarData bar, int index) {
-                    return ValueCircleDotPainter(
-                      value: spot.y,
-                      radius: 12,
-                      fillColor: Colors.black.withOpacity(0.75),
-                      strokeColor: Colors.white.withOpacity(0.9),
-                      strokeWidth: 1,
-                      textStyle: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
+                  show: showPointLabels,
+                  getDotPainter: (FlSpot spot, double percent, LineChartBarData bar, int index) {
+                    return ValueLabelDotPainter(
+                      color: lineColor,
+                      radius: 0.8,
+                      backgroundColor: Colors.black.withOpacity(0.55),
+                      textStyle: const TextStyle(fontSize: 6, color: Colors.white, fontWeight: FontWeight.w600),
+                      labelBuilder: _buildSpotLabel,
                     );
                   },
                 )
               : const FlDotData(show: false),
         ),
       ],
-
-      // ★拡大中はツールチップ無効、通常時はスイッチに従う
       lineTouchData: effectiveTooltip
           ? LineTouchData(
               touchTooltipData: LineTouchTooltipData(
@@ -423,6 +485,35 @@ class TapeDailyChartController extends ChangeNotifier {
             )
           : const LineTouchData(enabled: false, handleBuiltInTouches: false),
     );
+  }
+
+  ///
+  String _buildSpotLabel(FlSpot spot) {
+    final DateTime dt = dateFromIndex(spot.x.round());
+
+    final String yyyy = dt.year.toString().padLeft(4, '0');
+    final String mm = dt.month.toString().padLeft(2, '0');
+    final String dd = dt.day.toString().padLeft(2, '0');
+    final String date = '$yyyy-$mm-$dd';
+
+    final int price = spot.y.round();
+    final String displayPrice = _toCurrency(price);
+
+    return '$date\n$displayPrice';
+  }
+
+  ///
+  String _toCurrency(int v) {
+    final String s = v.toString();
+    final StringBuffer b = StringBuffer();
+    for (int i = 0; i < s.length; i++) {
+      final int fromEnd = s.length - i;
+      b.write(s[i]);
+      if (fromEnd > 1 && fromEnd % 3 == 1) {
+        b.write(',');
+      }
+    }
+    return b.toString();
   }
 
   ///
@@ -614,106 +705,78 @@ class TapeDailyChartController extends ChangeNotifier {
 
 /////////////////////////////////////////////////////////////////
 
-class ValueCircleDotPainter extends FlDotPainter {
-  ValueCircleDotPainter({
-    required this.value,
+class ValueLabelDotPainter extends FlDotPainter {
+  ValueLabelDotPainter({
+    required this.color,
     required this.radius,
-    required this.fillColor,
-    required this.strokeColor,
-    required this.strokeWidth,
     required this.textStyle,
+    required this.labelBuilder,
+    this.backgroundColor,
   });
 
-  final double value;
+  final Color color;
   final double radius;
-
-  final Color fillColor;
-  final Color strokeColor;
-  final double strokeWidth;
   final TextStyle textStyle;
-
-  // fl_chart のデフォルトUI用
-  @override
-  Color get mainColor => fillColor;
-
-  // equatable の stringify（任意だが明示しておく）
-  @override
-  bool? get stringify => false;
+  final String Function(FlSpot spot) labelBuilder;
+  final Color? backgroundColor;
 
   @override
-  List<Object?> get props => <Object?>[value, radius, fillColor, strokeColor, strokeWidth, textStyle];
+  Color get mainColor => color;
 
+  ///
+  @override
+  List<Object?> get props => <Object?>[color, radius, textStyle, backgroundColor];
+
+  ///
+  @override
+  void draw(Canvas canvas, FlSpot spot, Offset offsetInCanvas) {
+    final Paint dotPaint = Paint()..color = color;
+    canvas.drawCircle(offsetInCanvas, radius, dotPaint);
+
+    final String label = labelBuilder(spot);
+    if (label.isEmpty) {
+      return;
+    }
+
+    final TextPainter textPainter = TextPainter(
+      text: TextSpan(text: label, style: textStyle),
+      textAlign: TextAlign.right,
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: 46);
+
+    final Offset textOffset = offsetInCanvas - Offset(textPainter.width, textPainter.height + radius + 2);
+
+    if (backgroundColor != null) {
+      const double padX = 2;
+      const double padY = 1.5;
+
+      final Rect bgRect = Rect.fromLTWH(
+        textOffset.dx - padX,
+        textOffset.dy - padY,
+        textPainter.width + padX * 2,
+        textPainter.height + padY * 2,
+      );
+
+      final RRect rRect = RRect.fromRectAndRadius(bgRect, const Radius.circular(2));
+      final Paint bgPaint = Paint()..color = backgroundColor!;
+      canvas.drawRRect(rRect, bgPaint);
+    }
+
+    textPainter.paint(canvas, textOffset);
+  }
+
+  ///
   @override
   Size getSize(FlSpot spot) => Size(radius * 2, radius * 2);
 
+  ///
   @override
-  void draw(Canvas canvas, FlSpot spot, Offset offsetInCanvas) {
-    final Paint fill = Paint()..color = fillColor;
-    canvas.drawCircle(offsetInCanvas, radius, fill);
+  bool hitTest(FlSpot spot, Offset touched, Offset center, double extraThreshold) =>
+      (touched - center).distance <= radius + extraThreshold;
 
-    final Paint stroke = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..color = strokeColor;
-    canvas.drawCircle(offsetInCanvas, radius, stroke);
-
-    final String text = _compact(value);
-
-    final TextSpan span = TextSpan(text: text, style: textStyle);
-
-    final TextPainter tp = TextPainter(
-      text: span,
-      textAlign: TextAlign.center,
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-    )..layout(maxWidth: radius * 2 - 2);
-
-    final Offset textOffset = offsetInCanvas - Offset(tp.width / 2, tp.height / 2);
-    tp.paint(canvas, textOffset);
-  }
-
-  /// タッチ判定（円として扱う）
+  ///
   @override
-  bool hitTest(FlSpot spot, Offset touched, Offset center, double extraThreshold) {
-    final double dx = touched.dx - center.dx;
-    final double dy = touched.dy - center.dy;
-    final double dist2 = dx * dx + dy * dy;
-    final double r = radius + extraThreshold;
-    return dist2 <= r * r;
-  }
-
-  /// fl_chart のアニメーション補間で必須（バージョンによっては abstract 扱い）
-  @override
-  FlDotPainter lerp(covariant FlDotPainter a, covariant FlDotPainter b, double t) {
-    if (a is! ValueCircleDotPainter || b is! ValueCircleDotPainter) {
-      return t < 0.5 ? a : b;
-    }
-
-    return ValueCircleDotPainter(
-      value: _lerpDouble(a.value, b.value, t),
-      radius: _lerpDouble(a.radius, b.radius, t),
-      fillColor: Color.lerp(a.fillColor, b.fillColor, t) ?? b.fillColor,
-      strokeColor: Color.lerp(a.strokeColor, b.strokeColor, t) ?? b.strokeColor,
-      strokeWidth: _lerpDouble(a.strokeWidth, b.strokeWidth, t),
-      textStyle: TextStyle.lerp(a.textStyle, b.textStyle, t) ?? b.textStyle,
-    );
-  }
-
-  String _compact(double v) {
-    final int n = v.toInt().abs();
-
-    if (n >= 100000000) {
-      final double x = v / 100000000.0;
-      return '${x.toStringAsFixed(1)}億';
-    }
-    if (n >= 10000) {
-      final double x = v / 10000.0;
-      return '${x.toStringAsFixed(1)}万';
-    }
-    return v.toInt().toString();
-  }
-
-  double _lerpDouble(double a, double b, double t) => a + (b - a) * t;
+  FlDotPainter lerp(FlDotPainter a, FlDotPainter b, double t) => this;
 }
 
 /////////////////////////////////////////////////////////////////
@@ -852,7 +915,7 @@ class _ZoomBar extends StatelessWidget {
           tooltip: zoomMode ? '拡大OFF' : '拡大ON',
         ),
         const SizedBox(width: 8),
-        Expanded(child: Text(zoomMode ? 'ピンチ拡大：ON（ツールチップOFF・値円表示）' : 'ピンチ拡大：OFF（テープドラッグ）')),
+        Expanded(child: Text(zoomMode ? 'ピンチ拡大：ON（倍率>=5で点ラベル表示／ツールチップOFF）' : 'ピンチ拡大：OFF（テープドラッグ）')),
       ],
     );
   }
