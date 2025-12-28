@@ -129,7 +129,7 @@ class _MyAppState extends ConsumerState<MyApp> with ControllersMixin<MyApp> {
           windowDays: 30,
           pixelsPerDay: 16.0,
           fixedMinY: 0,
-          fixedMaxY: 20000000,
+          fixedMaxY: 10000000,
           fixedIntervalY: 1000000,
           seed: 2023,
           labelShowScaleThreshold: 3.0,

@@ -72,7 +72,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
     _transformationController.addListener(_onTransformChanged);
   }
 
-  /// ✅ ここが今回の本命修正：後から startDate / moneySumList が変わったら controller を作り直す
+  /// ✅ startDate / moneySumList が変わったら controller を作り直す
   @override
   void didUpdateWidget(covariant TapeDailyLineChartDemoPage oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -83,14 +83,12 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
         oldWidget.startDate.day != widget.startDate.day;
 
     final bool moneyListChanged = oldWidget.moneySumList != widget.moneySumList;
-
     final bool spotsChanged = oldWidget.dataSpots != widget.dataSpots;
 
     if (!startDateChanged && !moneyListChanged && !spotsChanged) {
       return;
     }
 
-    // controller 作り直し
     tapeDailyChartController.removeListener(_onControllerChanged);
     tapeDailyChartController.dispose();
 
@@ -108,7 +106,6 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
 
     tapeDailyChartController.addListener(_onControllerChanged);
 
-    // ついでにUI側も初期化（最小）
     _transformationController.value = Matrix4.identity();
     _showPointLabels = false;
 
@@ -130,7 +127,6 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
     }
 
     final double scale = _transformationController.value.getMaxScaleOnAxis();
-
     final bool shouldShow = scale >= widget.labelShowScaleThreshold;
 
     if (shouldShow != _showPointLabels) {
@@ -342,19 +338,16 @@ class TapeDailyChartController extends ChangeNotifier {
 
   ///
   List<FlSpot> _prepareSpots() {
-    // 互換：明示spotsがあるならそれを優先
     if (dataSpots != null && dataSpots!.isNotEmpty) {
       final List<FlSpot> sorted = List<FlSpot>.from(dataSpots!)..sort((FlSpot a, FlSpot b) => a.x.compareTo(b.x));
       return sorted;
     }
 
-    // ✅ 本命：moneySumList から FlSpot を作る
     final List<FlSpot> moneySpots = _makeSpotsFromMoneySumList();
     if (moneySpots.isNotEmpty) {
       return moneySpots;
     }
 
-    // フォールバック：デモ生成（この場合だけ seed が効く）
     return _makeDailyDemoSpotsFixedRangeWavy(
       start: startDate,
       endInclusive: todayJst,
@@ -369,20 +362,13 @@ class TapeDailyChartController extends ChangeNotifier {
       return <FlSpot>[];
     }
 
-    // 日付順（昇順）に並べる
     final List<MoneySumModel> sorted = List<MoneySumModel>.from(moneySumList)
       ..sort((MoneySumModel a, MoneySumModel b) {
         final DateTime? da = _tryParseDate(a.date);
         final DateTime? db = _tryParseDate(b.date);
-        if (da == null && db == null) {
-          return 0;
-        }
-        if (da == null) {
-          return 1;
-        }
-        if (db == null) {
-          return -1;
-        }
+        if (da == null && db == null) return 0;
+        if (da == null) return 1;
+        if (db == null) return -1;
         return da.compareTo(db);
       });
 
@@ -390,15 +376,10 @@ class TapeDailyChartController extends ChangeNotifier {
 
     for (final MoneySumModel m in sorted) {
       final DateTime? dt = _tryParseDate(m.date);
-      if (dt == null) {
-        continue;
-      }
+      if (dt == null) continue;
 
-      // ✅ startDate（= MyAppで最小日付に解決済み）を基準にXを作る
       final int x = dt.difference(startDate).inDays;
-      if (x < 0) {
-        continue;
-      }
+      if (x < 0) continue;
 
       spots.add(FlSpot(x.toDouble(), m.sum.toDouble()));
     }
@@ -425,7 +406,6 @@ class TapeDailyChartController extends ChangeNotifier {
   ///
   void setZoomMode(bool v) {
     zoomMode = v;
-
     dragAccumDx = 0;
     notifyListeners();
   }
@@ -454,13 +434,8 @@ class TapeDailyChartController extends ChangeNotifier {
 
   ///
   void onDragUpdate(DragUpdateDetails d) {
-    if (zoomMode) {
-      return;
-    }
-
-    if (tooltipEnabled) {
-      return;
-    }
+    if (zoomMode) return;
+    if (tooltipEnabled) return;
 
     dragAccumDx += d.delta.dx;
 
@@ -486,12 +461,8 @@ class TapeDailyChartController extends ChangeNotifier {
   ///
   double _clampStartIndex(double start) {
     final int maxStart = math.max(0, maxIndex - (windowDays - 1));
-    if (start < 0) {
-      return 0;
-    }
-    if (start > maxStart) {
-      return maxStart.toDouble();
-    }
+    if (start < 0) return 0;
+    if (start > maxStart) return maxStart.toDouble();
     return start;
   }
 
@@ -508,7 +479,6 @@ class TapeDailyChartController extends ChangeNotifier {
     );
 
     final Color lineColor = Theme.of(context).colorScheme.primary;
-
     final bool effectiveTooltip = tooltipEnabled && !zoomMode;
 
     return LineChartData(
@@ -516,6 +486,8 @@ class TapeDailyChartController extends ChangeNotifier {
       maxX: maxX0,
       minY: fixedMinY,
       maxY: fixedMaxY,
+
+      // ✅ ここが重要：backData と同じ reservedSize を確保して「内側の描画領域」を一致させる
       titlesData: FlTitlesData(
         topTitles: const AxisTitles(),
         bottomTitles: AxisTitles(
@@ -529,6 +501,7 @@ class TapeDailyChartController extends ChangeNotifier {
         leftTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
+            reservedSize: 60,
             interval: fixedIntervalY,
             getTitlesWidget: (_, __) => const SizedBox.shrink(),
           ),
@@ -536,11 +509,13 @@ class TapeDailyChartController extends ChangeNotifier {
         rightTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
+            reservedSize: 60,
             interval: fixedIntervalY,
             getTitlesWidget: (_, __) => const SizedBox.shrink(),
           ),
         ),
       ),
+
       gridData: const FlGridData(show: false),
       borderData: FlBorderData(show: false),
       lineBarsData: <LineChartBarData>[
@@ -567,13 +542,18 @@ class TapeDailyChartController extends ChangeNotifier {
       ],
       lineTouchData: effectiveTooltip
           ? LineTouchData(
+              enabled: true,
+              handleBuiltInTouches: true,
+              touchSpotThreshold: 40,
               touchTooltipData: LineTouchTooltipData(
+                fitInsideHorizontally: true,
+                fitInsideVertically: true,
                 getTooltipItems: (List<LineBarSpot> touchedSpots) {
                   return touchedSpots.map((LineBarSpot s) {
                     final DateTime dt = dateFromIndex(s.x.round());
                     final String title = '${dt.year}/${dt.month}/${dt.day}';
-                    final String val = s.y.toInt().toString();
-                    return LineTooltipItem('$title\n$val', const TextStyle(fontSize: 12));
+                    final String val = _toCurrency(s.y.round());
+                    return LineTooltipItem('$title\n$val', const TextStyle(fontSize: 12, color: Colors.white));
                   }).toList();
                 },
               ),
@@ -627,9 +607,18 @@ class TapeDailyChartController extends ChangeNotifier {
       gridData: FlGridData(verticalInterval: 1, horizontalInterval: fixedIntervalY),
       extraLinesData: ExtraLinesData(verticalLines: monthLines),
       borderData: FlBorderData(show: false),
+
+      // ✅ frontData と同じ reservedSize を持たせる（ここも一致させる）
       titlesData: FlTitlesData(
         topTitles: const AxisTitles(),
-        bottomTitles: const AxisTitles(),
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 34,
+            interval: 1,
+            getTitlesWidget: (_, __) => const SizedBox.shrink(),
+          ),
+        ),
         leftTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
@@ -818,11 +807,9 @@ class ValueLabelDotPainter extends FlDotPainter {
   @override
   Color get mainColor => color;
 
-  ///
   @override
   List<Object?> get props => <Object?>[color, radius, textStyle, backgroundColor];
 
-  ///
   @override
   void draw(Canvas canvas, FlSpot spot, Offset offsetInCanvas) {
     final Paint dotPaint = Paint()..color = color;
@@ -860,16 +847,13 @@ class ValueLabelDotPainter extends FlDotPainter {
     textPainter.paint(canvas, textOffset);
   }
 
-  ///
   @override
   Size getSize(FlSpot spot) => Size(radius * 2, radius * 2);
 
-  ///
   @override
   bool hitTest(FlSpot spot, Offset touched, Offset center, double extraThreshold) =>
       (touched - center).distance <= radius + extraThreshold;
 
-  ///
   @override
   FlDotPainter lerp(FlDotPainter a, FlDotPainter b, double t) => this;
 }
@@ -890,7 +874,6 @@ class TapeChartFrame extends StatelessWidget {
   final void Function(DragEndDetails) onDragEnd;
   final bool dragEnabled;
 
-  ///
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
@@ -930,7 +913,6 @@ class _HeaderDaily extends StatelessWidget {
   final bool tooltipSwitchEnabled;
   final ValueChanged<bool> onToggleTooltip;
 
-  ///
   @override
   Widget build(BuildContext context) {
     final String todayStr = '${today.year}/${today.month}/${today.day}';
@@ -952,7 +934,6 @@ class _HeaderDaily extends StatelessWidget {
               const Text('値の箱（ツールチップ）', style: TextStyle(fontSize: 12)),
               const SizedBox(width: 8),
               Switch(
-                // ignore: avoid_bool_literals_in_conditional_expressions
                 value: tooltipSwitchEnabled ? tooltipEnabled : false,
                 onChanged: tooltipSwitchEnabled ? onToggleTooltip : null,
               ),
@@ -976,7 +957,6 @@ class _FooterDaily extends StatelessWidget {
   final VoidCallback onReset;
   final VoidCallback onToToday;
 
-  ///
   @override
   Widget build(BuildContext context) {
     return Wrap(
@@ -1032,66 +1012,75 @@ class _MonthJumpBar extends StatefulWidget {
 class _MonthJumpBarState extends State<_MonthJumpBar> {
   final ScrollController _sc = ScrollController();
 
-  static const double _estimatedChipWidth = 92.0;
-  static const double _estimatedGap = 12.0;
+  late List<GlobalKey> _chipKeys;
 
-  ///
+  @override
+  void initState() {
+    super.initState();
+    _rebuildKeys();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureSelectedMonthVisible(animate: false);
+    });
+  }
+
   @override
   void didUpdateWidget(covariant _MonthJumpBar oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.monthStarts.length != widget.monthStarts.length) {
+      _rebuildKeys();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _ensureSelectedMonthVisible(animate: false);
+      });
+      return;
+    }
 
     final DateTime oldMonth = DateTime(oldWidget.currentWindowStart.year, oldWidget.currentWindowStart.month);
     final DateTime newMonth = DateTime(widget.currentWindowStart.year, widget.currentWindowStart.month);
 
     if (oldMonth.year != newMonth.year || oldMonth.month != newMonth.month) {
-      _scrollToSelectedMonth(newMonth, animate: true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _ensureSelectedMonthVisible(animate: true);
+      });
     }
   }
 
-  ///
-  @override
-  void initState() {
-    super.initState();
-    final DateTime currentMonth = DateTime(widget.currentWindowStart.year, widget.currentWindowStart.month);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToSelectedMonth(currentMonth, animate: false);
-    });
+  void _rebuildKeys() {
+    _chipKeys = List<GlobalKey>.generate(widget.monthStarts.length, (_) => GlobalKey());
   }
 
-  ///
-  void _scrollToSelectedMonth(DateTime selectedMonthStart, {required bool animate}) {
-    final int idx = widget.monthStarts.indexWhere(
-      (DateTime m) => m.year == selectedMonthStart.year && m.month == selectedMonthStart.month,
+  int _selectedIndex() {
+    final DateTime currentMonthStart = DateTime(widget.currentWindowStart.year, widget.currentWindowStart.month);
+    return widget.monthStarts.indexWhere(
+      (DateTime m) => m.year == currentMonthStart.year && m.month == currentMonthStart.month,
     );
-    if (idx < 0) {
-      return;
-    }
-    if (!_sc.hasClients) {
-      return;
-    }
-
-    final double target =
-        idx * (_estimatedChipWidth + _estimatedGap) -
-        (MediaQuery.of(context).size.width / 2) +
-        (_estimatedChipWidth / 2);
-
-    final double clamped = target.clamp(0.0, _sc.position.maxScrollExtent);
-
-    if (animate) {
-      _sc.animateTo(clamped, duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
-    } else {
-      _sc.jumpTo(clamped);
-    }
   }
 
-  ///
+  Future<void> _ensureSelectedMonthVisible({required bool animate}) async {
+    if (!mounted) return;
+    if (!_sc.hasClients) return;
+
+    final int idx = _selectedIndex();
+    if (idx < 0 || idx >= _chipKeys.length) return;
+
+    final BuildContext? chipCtx = _chipKeys[idx].currentContext;
+    if (chipCtx == null) return;
+
+    await Scrollable.ensureVisible(
+      chipCtx,
+      alignment: 0.5,
+      duration: animate ? const Duration(milliseconds: 220) : Duration.zero,
+      curve: Curves.easeOut,
+    );
+  }
+
   @override
   void dispose() {
     _sc.dispose();
     super.dispose();
   }
 
-  ///
   @override
   Widget build(BuildContext context) {
     final DateTime currentMonthStart = DateTime(widget.currentWindowStart.year, widget.currentWindowStart.month);
@@ -1104,19 +1093,26 @@ class _MonthJumpBarState extends State<_MonthJumpBar> {
         controller: _sc,
         scrollDirection: Axis.horizontal,
         child: Row(
-          children: widget.monthStarts.map((DateTime m) {
+          children: List<Widget>.generate(widget.monthStarts.length, (int i) {
+            final DateTime m = widget.monthStarts[i];
             final bool selected = m.year == currentMonthStart.year && m.month == currentMonthStart.month;
             final String label = '${m.year}/${m.month.toString().padLeft(2, '0')}';
 
             return Padding(
+              key: _chipKeys[i],
               padding: const EdgeInsets.symmetric(horizontal: 6),
               child: ChoiceChip(
                 label: Text(label, style: const TextStyle(fontSize: 12)),
                 selected: selected,
-                onSelected: (_) => widget.onTapMonth(m),
+                onSelected: (_) {
+                  widget.onTapMonth(m);
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    _ensureSelectedMonthVisible(animate: true);
+                  });
+                },
               ),
             );
-          }).toList(),
+          }),
         ),
       ),
     );
