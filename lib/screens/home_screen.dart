@@ -42,8 +42,9 @@ class TapeDailyLineChartDemoPage extends StatefulWidget {
   State<TapeDailyLineChartDemoPage> createState() => _TapeDailyLineChartDemoPageState();
 }
 
+/////////////////////////////////////////////////////////////////
+
 class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage> {
-  // ✅ late final をやめないと更新できないため late に変更（最小変更）
   late TapeDailyChartController tapeDailyChartController;
 
   final TransformationController _transformationController = TransformationController();
@@ -72,7 +73,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
     _transformationController.addListener(_onTransformChanged);
   }
 
-  /// ✅ startDate / moneySumList が変わったら controller を作り直す
+  ///
   @override
   void didUpdateWidget(covariant TapeDailyLineChartDemoPage oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -327,6 +328,7 @@ class TapeDailyChartController extends ChangeNotifier {
     monthStarts = _buildMonthStarts(start: startDate, endInclusive: todayJst);
   }
 
+  ///
   DateTime? _tryParseDate(String s) {
     try {
       final DateTime dt = DateTime.parse(s);
@@ -357,6 +359,7 @@ class TapeDailyChartController extends ChangeNotifier {
     );
   }
 
+  ///
   List<FlSpot> _makeSpotsFromMoneySumList() {
     if (moneySumList.isEmpty) {
       return <FlSpot>[];
@@ -366,9 +369,15 @@ class TapeDailyChartController extends ChangeNotifier {
       ..sort((MoneySumModel a, MoneySumModel b) {
         final DateTime? da = _tryParseDate(a.date);
         final DateTime? db = _tryParseDate(b.date);
-        if (da == null && db == null) return 0;
-        if (da == null) return 1;
-        if (db == null) return -1;
+        if (da == null && db == null) {
+          return 0;
+        }
+        if (da == null) {
+          return 1;
+        }
+        if (db == null) {
+          return -1;
+        }
         return da.compareTo(db);
       });
 
@@ -376,10 +385,14 @@ class TapeDailyChartController extends ChangeNotifier {
 
     for (final MoneySumModel m in sorted) {
       final DateTime? dt = _tryParseDate(m.date);
-      if (dt == null) continue;
+      if (dt == null) {
+        continue;
+      }
 
       final int x = dt.difference(startDate).inDays;
-      if (x < 0) continue;
+      if (x < 0) {
+        continue;
+      }
 
       spots.add(FlSpot(x.toDouble(), m.sum.toDouble()));
     }
@@ -434,8 +447,12 @@ class TapeDailyChartController extends ChangeNotifier {
 
   ///
   void onDragUpdate(DragUpdateDetails d) {
-    if (zoomMode) return;
-    if (tooltipEnabled) return;
+    if (zoomMode) {
+      return;
+    }
+    if (tooltipEnabled) {
+      return;
+    }
 
     dragAccumDx += d.delta.dx;
 
@@ -461,8 +478,12 @@ class TapeDailyChartController extends ChangeNotifier {
   ///
   double _clampStartIndex(double start) {
     final int maxStart = math.max(0, maxIndex - (windowDays - 1));
-    if (start < 0) return 0;
-    if (start > maxStart) return maxStart.toDouble();
+    if (start < 0) {
+      return 0;
+    }
+    if (start > maxStart) {
+      return maxStart.toDouble();
+    }
     return start;
   }
 
@@ -487,7 +508,6 @@ class TapeDailyChartController extends ChangeNotifier {
       minY: fixedMinY,
       maxY: fixedMaxY,
 
-      // ✅ ここが重要：backData と同じ reservedSize を確保して「内側の描画領域」を一致させる
       titlesData: FlTitlesData(
         topTitles: const AxisTitles(),
         bottomTitles: AxisTitles(
@@ -498,25 +518,12 @@ class TapeDailyChartController extends ChangeNotifier {
             getTitlesWidget: (_, __) => const SizedBox.shrink(),
           ),
         ),
-        leftTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 60,
-            interval: fixedIntervalY,
-            getTitlesWidget: (_, __) => const SizedBox.shrink(),
-          ),
-        ),
-        rightTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 60,
-            interval: fixedIntervalY,
-            getTitlesWidget: (_, __) => const SizedBox.shrink(),
-          ),
-        ),
+        leftTitles: const AxisTitles(),
+        rightTitles: const AxisTitles(),
       ),
 
-      gridData: const FlGridData(show: false),
+      gridData: FlGridData(verticalInterval: 1, horizontalInterval: fixedIntervalY),
+
       borderData: FlBorderData(show: false),
       lineBarsData: <LineChartBarData>[
         LineChartBarData(
@@ -542,8 +549,6 @@ class TapeDailyChartController extends ChangeNotifier {
       ],
       lineTouchData: effectiveTooltip
           ? LineTouchData(
-              enabled: true,
-              handleBuiltInTouches: true,
               touchSpotThreshold: 40,
               touchTooltipData: LineTouchTooltipData(
                 fitInsideHorizontally: true,
@@ -604,11 +609,11 @@ class TapeDailyChartController extends ChangeNotifier {
       minY: fixedMinY,
       maxY: fixedMaxY,
       lineTouchData: const LineTouchData(enabled: false, handleBuiltInTouches: false),
-      gridData: FlGridData(verticalInterval: 1, horizontalInterval: fixedIntervalY),
+      gridData: const FlGridData(show: false),
+
       extraLinesData: ExtraLinesData(verticalLines: monthLines),
       borderData: FlBorderData(show: false),
 
-      // ✅ frontData と同じ reservedSize を持たせる（ここも一致させる）
       titlesData: FlTitlesData(
         topTitles: const AxisTitles(),
         bottomTitles: AxisTitles(
@@ -804,12 +809,15 @@ class ValueLabelDotPainter extends FlDotPainter {
   final String Function(FlSpot spot) labelBuilder;
   final Color? backgroundColor;
 
+  ///
   @override
   Color get mainColor => color;
 
+  ///
   @override
   List<Object?> get props => <Object?>[color, radius, textStyle, backgroundColor];
 
+  ///
   @override
   void draw(Canvas canvas, FlSpot spot, Offset offsetInCanvas) {
     final Paint dotPaint = Paint()..color = color;
@@ -847,13 +855,16 @@ class ValueLabelDotPainter extends FlDotPainter {
     textPainter.paint(canvas, textOffset);
   }
 
+  ///
   @override
   Size getSize(FlSpot spot) => Size(radius * 2, radius * 2);
 
+  ///
   @override
   bool hitTest(FlSpot spot, Offset touched, Offset center, double extraThreshold) =>
       (touched - center).distance <= radius + extraThreshold;
 
+  ///
   @override
   FlDotPainter lerp(FlDotPainter a, FlDotPainter b, double t) => this;
 }
@@ -874,6 +885,7 @@ class TapeChartFrame extends StatelessWidget {
   final void Function(DragEndDetails) onDragEnd;
   final bool dragEnabled;
 
+  ///
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
@@ -913,6 +925,7 @@ class _HeaderDaily extends StatelessWidget {
   final bool tooltipSwitchEnabled;
   final ValueChanged<bool> onToggleTooltip;
 
+  ///
   @override
   Widget build(BuildContext context) {
     final String todayStr = '${today.year}/${today.month}/${today.day}';
@@ -934,6 +947,7 @@ class _HeaderDaily extends StatelessWidget {
               const Text('値の箱（ツールチップ）', style: TextStyle(fontSize: 12)),
               const SizedBox(width: 8),
               Switch(
+                // ignore: avoid_bool_literals_in_conditional_expressions
                 value: tooltipSwitchEnabled ? tooltipEnabled : false,
                 onChanged: tooltipSwitchEnabled ? onToggleTooltip : null,
               ),
@@ -957,6 +971,7 @@ class _FooterDaily extends StatelessWidget {
   final VoidCallback onReset;
   final VoidCallback onToToday;
 
+  ///
   @override
   Widget build(BuildContext context) {
     return Wrap(
@@ -979,6 +994,7 @@ class _ZoomBar extends StatelessWidget {
   final VoidCallback onToggleZoom;
   final VoidCallback? onResetTransform;
 
+  ///
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -1009,11 +1025,14 @@ class _MonthJumpBar extends StatefulWidget {
   State<_MonthJumpBar> createState() => _MonthJumpBarState();
 }
 
+//=====
+
 class _MonthJumpBarState extends State<_MonthJumpBar> {
   final ScrollController _sc = ScrollController();
 
   late List<GlobalKey> _chipKeys;
 
+  ///
   @override
   void initState() {
     super.initState();
@@ -1024,6 +1043,7 @@ class _MonthJumpBarState extends State<_MonthJumpBar> {
     });
   }
 
+  ///
   @override
   void didUpdateWidget(covariant _MonthJumpBar oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -1046,10 +1066,12 @@ class _MonthJumpBarState extends State<_MonthJumpBar> {
     }
   }
 
+  ///
   void _rebuildKeys() {
     _chipKeys = List<GlobalKey>.generate(widget.monthStarts.length, (_) => GlobalKey());
   }
 
+  ///
   int _selectedIndex() {
     final DateTime currentMonthStart = DateTime(widget.currentWindowStart.year, widget.currentWindowStart.month);
     return widget.monthStarts.indexWhere(
@@ -1057,15 +1079,24 @@ class _MonthJumpBarState extends State<_MonthJumpBar> {
     );
   }
 
+  ///
   Future<void> _ensureSelectedMonthVisible({required bool animate}) async {
-    if (!mounted) return;
-    if (!_sc.hasClients) return;
+    if (!mounted) {
+      return;
+    }
+    if (!_sc.hasClients) {
+      return;
+    }
 
     final int idx = _selectedIndex();
-    if (idx < 0 || idx >= _chipKeys.length) return;
+    if (idx < 0 || idx >= _chipKeys.length) {
+      return;
+    }
 
     final BuildContext? chipCtx = _chipKeys[idx].currentContext;
-    if (chipCtx == null) return;
+    if (chipCtx == null) {
+      return;
+    }
 
     await Scrollable.ensureVisible(
       chipCtx,
@@ -1075,12 +1106,14 @@ class _MonthJumpBarState extends State<_MonthJumpBar> {
     );
   }
 
+  ///
   @override
   void dispose() {
     _sc.dispose();
     super.dispose();
   }
 
+  ///
   @override
   Widget build(BuildContext context) {
     final DateTime currentMonthStart = DateTime(widget.currentWindowStart.year, widget.currentWindowStart.month);
