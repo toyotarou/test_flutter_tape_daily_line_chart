@@ -350,13 +350,7 @@ class TapeDailyChartController extends ChangeNotifier {
       return moneySpots;
     }
 
-    return _makeDailyDemoSpotsFixedRangeWavy(
-      start: startDate,
-      endInclusive: todayJst,
-      seed: seed,
-      minY: fixedMinY,
-      maxY: fixedMaxY,
-    );
+    return <FlSpot>[];
   }
 
   ///
@@ -735,60 +729,6 @@ class TapeDailyChartController extends ChangeNotifier {
     }
 
     return visible;
-  }
-
-  ///
-  static List<FlSpot> _makeDailyDemoSpotsFixedRangeWavy({
-    required DateTime start,
-    required DateTime endInclusive,
-    required int seed,
-    required double minY,
-    required double maxY,
-  }) {
-    final int days = endInclusive.difference(start).inDays;
-    final math.Random rand = math.Random(seed);
-
-    final List<FlSpot> spots = <FlSpot>[];
-
-    final double range = maxY - minY;
-    final double mid = (minY + maxY) / 2;
-
-    final double ampYear = range * 0.35;
-    final double ampWeek = range * 0.18;
-    final double ampShort1 = range * 0.10;
-    final double ampShort2 = range * 0.07;
-
-    final double noiseAmp = range * 0.08;
-
-    const double smoothing = 0.55;
-
-    double value = mid;
-
-    for (int i = 0; i <= days; i++) {
-      final double yearly = math.sin(2 * math.pi * (i / 365.0));
-      final double weekly = math.sin(2 * math.pi * (i / 7.0));
-      final double short1 = math.sin(2 * math.pi * (i / 2.6));
-      final double short2 = math.sin(2 * math.pi * (i / 4.3));
-
-      final double noise = (rand.nextDouble() - 0.5) * noiseAmp;
-
-      double target = mid + yearly * ampYear + weekly * ampWeek + short1 * ampShort1 + short2 * ampShort2 + noise;
-
-      if (rand.nextDouble() < 0.12) {
-        final double jump = (rand.nextDouble() - 0.5) * range * 0.25;
-        target += jump;
-      }
-
-      final double bias = (rand.nextDouble() - 0.5) * range * 0.03;
-      target += bias;
-
-      value = value + (target - value) * smoothing;
-      value = value.clamp(minY, maxY);
-
-      spots.add(FlSpot(i.toDouble(), value));
-    }
-
-    return spots;
   }
 }
 
