@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
+import '../model/money_sum_model.dart';
+
 /////////////////////////////////////////////////////////////////
 
 class TapeDailyLineChartDemoPage extends StatefulWidget {
@@ -17,6 +19,7 @@ class TapeDailyLineChartDemoPage extends StatefulWidget {
     required this.seed,
     required this.labelShowScaleThreshold,
     this.dataSpots,
+    required this.moneySumList,
   });
 
   final DateTime startDate;
@@ -33,12 +36,15 @@ class TapeDailyLineChartDemoPage extends StatefulWidget {
 
   final List<FlSpot>? dataSpots;
 
+  final List<MoneySumModel> moneySumList;
+
   @override
   State<TapeDailyLineChartDemoPage> createState() => _TapeDailyLineChartDemoPageState();
 }
 
 class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage> {
-  late final TapeDailyChartController tapeDailyChartController;
+  // ✅ late final をやめないと更新できないため late に変更（最小変更）
+  late TapeDailyChartController tapeDailyChartController;
 
   final TransformationController _transformationController = TransformationController();
 
@@ -58,11 +64,55 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
       fixedIntervalY: widget.fixedIntervalY,
       seed: widget.seed,
       dataSpots: widget.dataSpots,
+      moneySumList: widget.moneySumList,
     )..init();
 
     tapeDailyChartController.addListener(_onControllerChanged);
 
     _transformationController.addListener(_onTransformChanged);
+  }
+
+  /// ✅ ここが今回の本命修正：後から startDate / moneySumList が変わったら controller を作り直す
+  @override
+  void didUpdateWidget(covariant TapeDailyLineChartDemoPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    final bool startDateChanged =
+        oldWidget.startDate.year != widget.startDate.year ||
+        oldWidget.startDate.month != widget.startDate.month ||
+        oldWidget.startDate.day != widget.startDate.day;
+
+    final bool moneyListChanged = oldWidget.moneySumList != widget.moneySumList;
+
+    final bool spotsChanged = oldWidget.dataSpots != widget.dataSpots;
+
+    if (!startDateChanged && !moneyListChanged && !spotsChanged) {
+      return;
+    }
+
+    // controller 作り直し
+    tapeDailyChartController.removeListener(_onControllerChanged);
+    tapeDailyChartController.dispose();
+
+    tapeDailyChartController = TapeDailyChartController(
+      startDate: widget.startDate,
+      windowDays: widget.windowDays,
+      pixelsPerDay: widget.pixelsPerDay,
+      fixedMinY: widget.fixedMinY,
+      fixedMaxY: widget.fixedMaxY,
+      fixedIntervalY: widget.fixedIntervalY,
+      seed: widget.seed,
+      dataSpots: widget.dataSpots,
+      moneySumList: widget.moneySumList,
+    )..init();
+
+    tapeDailyChartController.addListener(_onControllerChanged);
+
+    // ついでにUI側も初期化（最小）
+    _transformationController.value = Matrix4.identity();
+    _showPointLabels = false;
+
+    setState(() {});
   }
 
   ///
@@ -237,6 +287,7 @@ class TapeDailyChartController extends ChangeNotifier {
     required this.fixedIntervalY,
     required this.seed,
     this.dataSpots,
+    required this.moneySumList,
   });
 
   final DateTime startDate;
@@ -251,7 +302,10 @@ class TapeDailyChartController extends ChangeNotifier {
 
   final List<FlSpot>? dataSpots;
 
+  final List<MoneySumModel> moneySumList;
+
   late final DateTime todayJst;
+
   late final List<FlSpot> allSpots;
   late final int maxIndex;
 
@@ -277,13 +331,30 @@ class TapeDailyChartController extends ChangeNotifier {
     monthStarts = _buildMonthStarts(start: startDate, endInclusive: todayJst);
   }
 
+  DateTime? _tryParseDate(String s) {
+    try {
+      final DateTime dt = DateTime.parse(s);
+      return DateTime(dt.year, dt.month, dt.day);
+    } catch (_) {
+      return null;
+    }
+  }
+
   ///
   List<FlSpot> _prepareSpots() {
+    // 互換：明示spotsがあるならそれを優先
     if (dataSpots != null && dataSpots!.isNotEmpty) {
       final List<FlSpot> sorted = List<FlSpot>.from(dataSpots!)..sort((FlSpot a, FlSpot b) => a.x.compareTo(b.x));
       return sorted;
     }
 
+    // ✅ 本命：moneySumList から FlSpot を作る
+    final List<FlSpot> moneySpots = _makeSpotsFromMoneySumList();
+    if (moneySpots.isNotEmpty) {
+      return moneySpots;
+    }
+
+    // フォールバック：デモ生成（この場合だけ seed が効く）
     return _makeDailyDemoSpotsFixedRangeWavy(
       start: startDate,
       endInclusive: todayJst,
@@ -291,6 +362,48 @@ class TapeDailyChartController extends ChangeNotifier {
       minY: fixedMinY,
       maxY: fixedMaxY,
     );
+  }
+
+  List<FlSpot> _makeSpotsFromMoneySumList() {
+    if (moneySumList.isEmpty) {
+      return <FlSpot>[];
+    }
+
+    // 日付順（昇順）に並べる
+    final List<MoneySumModel> sorted = List<MoneySumModel>.from(moneySumList)
+      ..sort((MoneySumModel a, MoneySumModel b) {
+        final DateTime? da = _tryParseDate(a.date);
+        final DateTime? db = _tryParseDate(b.date);
+        if (da == null && db == null) {
+          return 0;
+        }
+        if (da == null) {
+          return 1;
+        }
+        if (db == null) {
+          return -1;
+        }
+        return da.compareTo(db);
+      });
+
+    final List<FlSpot> spots = <FlSpot>[];
+
+    for (final MoneySumModel m in sorted) {
+      final DateTime? dt = _tryParseDate(m.date);
+      if (dt == null) {
+        continue;
+      }
+
+      // ✅ startDate（= MyAppで最小日付に解決済み）を基準にXを作る
+      final int x = dt.difference(startDate).inDays;
+      if (x < 0) {
+        continue;
+      }
+
+      spots.add(FlSpot(x.toDouble(), m.sum.toDouble()));
+    }
+
+    return spots;
   }
 
   ///
