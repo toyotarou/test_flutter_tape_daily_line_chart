@@ -125,13 +125,13 @@ class _MyAppState extends ConsumerState<MyApp> with ControllersMixin<MyApp> {
         onTap: () => primaryFocus?.unfocus(),
         child: TapeDailyLineChartDemoPage(
           startDate: startDate,
-          // ✅ ここが 2014-06-01 起点になる
+
           windowDays: 30,
           pixelsPerDay: 16.0,
           fixedMinY: 0,
           fixedMaxY: 10000000,
           fixedIntervalY: 1000000,
-          seed: 2023,
+          seed: DateTime.now().year,
           labelShowScaleThreshold: 3.0,
           moneySumList: moneySumState.moneySumList,
         ),

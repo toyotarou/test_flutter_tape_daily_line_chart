@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
+import '../extensions/extensions.dart';
 import '../model/money_sum_model.dart';
 
 /////////////////////////////////////////////////////////////////
@@ -265,7 +266,6 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
         Positioned.fill(
           child: LineChart(backgroundData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
         ),
-
         Positioned.fill(
           child: IgnorePointer(
             child: CustomPaint(
@@ -279,15 +279,12 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
             ),
           ),
         ),
-
         Positioned.fill(
           child: LineChart(axisData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
         ),
-
         Positioned.fill(
           child: LineChart(monthlyPowerData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
         ),
-
         Positioned.fill(
           child: LineChart(mainData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
         ),
@@ -343,6 +340,8 @@ class TapeDailyChartController extends ChangeNotifier {
 
   late final List<DateTime> monthStarts;
 
+  late final Map<int, int> yearDeltaMap;
+
   double startIndex = 0;
   double dragAccumDx = 0;
 
@@ -365,6 +364,8 @@ class TapeDailyChartController extends ChangeNotifier {
     startIndex = 0;
 
     monthStarts = _buildMonthStarts(start: startDate, endInclusive: todayJst);
+
+    yearDeltaMap = _buildYearDeltaMap(skipYear: startDate.year);
   }
 
   ///
@@ -659,7 +660,9 @@ class TapeDailyChartController extends ChangeNotifier {
                     final DateTime dt = dateFromIndex(s.x.round());
                     final String title =
                         '${dt.year}/${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')}';
-                    final String val = _toCurrency(s.y.round());
+
+                    final String val = s.y.round().toString().toCurrency();
+
                     return LineTooltipItem('$title\n$val', const TextStyle(fontSize: 12, color: Colors.white));
                   }).toList();
                 },
@@ -761,6 +764,57 @@ class TapeDailyChartController extends ChangeNotifier {
     }
 
     return null;
+  }
+
+  ///
+  Map<int, int> _buildYearDeltaMap({required int skipYear}) {
+    final Map<int, int> map = <int, int>{};
+
+    if (allSpots.isEmpty) {
+      return map;
+    }
+
+    final DateTime lastDt = dateFromIndex(maxIndex);
+    final int lastFullYear = lastDt.year;
+
+    for (int year = skipYear + 1; year <= lastFullYear; year++) {
+      final int yearStartIdx = DateTime(year).difference(startDate).inDays;
+      final int yearEndIdx = DateTime(year, 12, 31).difference(startDate).inDays;
+
+      if (yearStartIdx < 0) {
+        continue;
+      }
+      if (yearEndIdx > maxIndex) {
+        continue;
+      }
+
+      int sum = 0;
+      bool ok = true;
+
+      for (int month = 1; month <= 12; month++) {
+        final DateTime mStart = DateTime(year, month);
+        final DateTime mEnd = DateTime(year, month + 1, 0);
+
+        final int sIdx = mStart.difference(startDate).inDays;
+        final int eIdx = mEnd.difference(startDate).inDays;
+
+        final double? yStart = _valueAtIndexWithFallback(sIdx);
+        final double? yEnd = _valueAtIndexWithFallback(eIdx);
+
+        if (yStart == null || yEnd == null) {
+          ok = false;
+          break;
+        }
+
+        sum += (yEnd - yStart).round();
+      }
+
+      if (ok) {
+        map[year] = sum;
+      }
+    }
+
+    return map;
   }
 
   ///
@@ -867,12 +921,22 @@ class TapeDailyChartController extends ChangeNotifier {
         final double? yStart = _valueAtIndexWithFallback(sIdx);
         final double? yEnd = _valueAtIndexWithFallback(eIdx);
 
-        int? delta;
+        int? monthDelta;
         if (yStart != null && yEnd != null) {
-          delta = (yEnd - yStart).round();
+          monthDelta = (yEnd - yStart).round();
         }
 
-        labels.add(MonthBandLabel(year: cursor.year, month: cursor.month, centerX: centerX, monthDelta: delta));
+        final int? yearDelta = cursor.month == 12 ? yearDeltaMap[cursor.year] : null;
+
+        labels.add(
+          MonthBandLabel(
+            year: cursor.year,
+            month: cursor.month,
+            centerX: centerX,
+            monthDelta: monthDelta,
+            yearDelta: yearDelta,
+          ),
+        );
       }
 
       cursor = DateTime(cursor.year, cursor.month + 1);
@@ -891,23 +955,10 @@ class TapeDailyChartController extends ChangeNotifier {
     final String date = '$yyyy-$mm-$dd';
 
     final int price = spot.y.round();
-    final String displayPrice = _toCurrency(price);
+
+    final String displayPrice = price.toString().toCurrency();
 
     return '$date\n$displayPrice';
-  }
-
-  ///
-  String _toCurrency(int v) {
-    final String s = v.toString();
-    final StringBuffer b = StringBuffer();
-    for (int i = 0; i < s.length; i++) {
-      final int fromEnd = s.length - i;
-      b.write(s[i]);
-      if (fromEnd > 1 && fromEnd % 3 == 1) {
-        b.write(',');
-      }
-    }
-    return b.toString();
   }
 
   ///
@@ -958,7 +1009,7 @@ class TapeDailyChartController extends ChangeNotifier {
 /////////////////////////////////////////////////////////////////
 
 class MonthBandLabel {
-  MonthBandLabel({required this.year, required this.month, required this.centerX, this.monthDelta});
+  MonthBandLabel({required this.year, required this.month, required this.centerX, this.monthDelta, this.yearDelta});
 
   final int year;
   final int month;
@@ -967,15 +1018,12 @@ class MonthBandLabel {
 
   final int? monthDelta;
 
-  ///
+  final int? yearDelta;
+
   String get text => '$year/${month.toString().padLeft(2, '0')}';
 
   ///
-  String get deltaText {
-    if (monthDelta == null) {
-      return '';
-    }
-    final int v = monthDelta!;
+  static String _formatSigned(int v) {
     final String sign = v >= 0 ? '+' : '-';
     final int absV = v.abs();
 
@@ -988,8 +1036,23 @@ class MonthBandLabel {
         b.write(',');
       }
     }
-
     return '$sign$b';
+  }
+
+  ///
+  String get deltaText {
+    if (monthDelta == null) {
+      return '';
+    }
+    return _formatSigned(monthDelta!);
+  }
+
+  ///
+  String get yearDeltaText {
+    if (yearDelta == null) {
+      return '';
+    }
+    return _formatSigned(yearDelta!);
   }
 }
 
@@ -1022,13 +1085,11 @@ class MonthBandLabelPainter extends CustomPainter {
       return;
     }
 
-    // “2014/06” の位置（既存）
     final double yTitle = size.height * 0.18;
 
     for (final MonthBandLabel label in labels) {
       final double px = _xToPx(label.centerX, size.width);
 
-      // 1行目：年月
       final TextPainter tp1 = TextPainter(
         text: TextSpan(
           text: label.text,
@@ -1041,20 +1102,39 @@ class MonthBandLabelPainter extends CustomPainter {
       final Offset pos1 = Offset(px - tp1.width / 2, yTitle - tp1.height / 2);
       tp1.paint(canvas, pos1);
 
-      final String deltaText = label.deltaText;
-      if (deltaText.isNotEmpty) {
+      final String monthDeltaText = label.deltaText;
+      double yCursor = pos1.dy + tp1.height + 2;
+
+      if (monthDeltaText.isNotEmpty) {
         final TextPainter tp2 = TextPainter(
           text: TextSpan(
-            text: deltaText,
+            text: monthDeltaText,
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.45)),
           ),
           textAlign: TextAlign.center,
           textDirection: TextDirection.ltr,
         )..layout();
 
-        final double y2 = pos1.dy + tp1.height + 2;
-        final Offset pos2 = Offset(px - tp2.width / 2, y2);
+        final Offset pos2 = Offset(px - tp2.width / 2, yCursor);
         tp2.paint(canvas, pos2);
+
+        yCursor = pos2.dy + tp2.height + 1;
+      }
+
+      final String yearDeltaText = label.yearDeltaText;
+      if (yearDeltaText.isNotEmpty) {
+        // ignore: unused_local_variable
+        final TextPainter tp3 = TextPainter(
+          text: TextSpan(
+            text: yearDeltaText,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.38)),
+          ),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        final Offset pos3 = Offset(px - tp3.width / 2, yCursor);
+        tp3.paint(canvas, pos3);
       }
     }
   }
