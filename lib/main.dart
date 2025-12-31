@@ -126,7 +126,7 @@ class _MyAppState extends ConsumerState<MyApp> with ControllersMixin<MyApp> {
         child: TapeDailyLineChartDemoPage(
           startDate: startDate,
 
-          windowDays: 30,
+          windowDays: 35,
           pixelsPerDay: 16.0,
           fixedMinY: 0,
           fixedMaxY: 10000000,
