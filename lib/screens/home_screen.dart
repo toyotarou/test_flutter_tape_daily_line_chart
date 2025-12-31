@@ -132,9 +132,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
     final bool shouldShow = scale >= widget.labelShowScaleThreshold;
 
     if (shouldShow != _showPointLabels) {
-      setState(() {
-        _showPointLabels = shouldShow;
-      });
+      setState(() => _showPointLabels = shouldShow);
     }
   }
 
@@ -210,9 +208,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                 onResetTransform: tapeDailyChartController.zoomMode
                     ? () {
                         _transformationController.value = Matrix4.identity();
-                        setState(() {
-                          _showPointLabels = false;
-                        });
+                        setState(() => _showPointLabels = false);
                       }
                     : null,
               ),
@@ -1407,9 +1403,7 @@ class _MonthJumpBarState extends State<_MonthJumpBar> {
     super.initState();
     _rebuildKeys();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _ensureSelectedMonthVisible(animate: false);
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureSelectedMonthVisible(animate: false));
   }
 
   ///
@@ -1419,9 +1413,7 @@ class _MonthJumpBarState extends State<_MonthJumpBar> {
 
     if (oldWidget.monthStarts.length != widget.monthStarts.length) {
       _rebuildKeys();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _ensureSelectedMonthVisible(animate: false);
-      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _ensureSelectedMonthVisible(animate: false));
       return;
     }
 
@@ -1429,9 +1421,7 @@ class _MonthJumpBarState extends State<_MonthJumpBar> {
     final DateTime newMonth = DateTime(widget.currentWindowStart.year, widget.currentWindowStart.month);
 
     if (oldMonth.year != newMonth.year || oldMonth.month != newMonth.month) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _ensureSelectedMonthVisible(animate: true);
-      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _ensureSelectedMonthVisible(animate: true));
     }
   }
 
@@ -1508,9 +1498,7 @@ class _MonthJumpBarState extends State<_MonthJumpBar> {
                 selected: selected,
                 onSelected: (_) {
                   widget.onTapMonth(m);
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _ensureSelectedMonthVisible(animate: true);
-                  });
+                  WidgetsBinding.instance.addPostFrameCallback((_) => _ensureSelectedMonthVisible(animate: true));
                 },
               ),
             );
