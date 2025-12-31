@@ -158,8 +158,9 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
 
     final bool dragEnabled = !tapeDailyChartController.zoomMode && !tapeDailyChartController.tooltipEnabled;
 
-    final LineChartData backData = tapeDailyChartController.buildBackData();
-    final LineChartData frontData = tapeDailyChartController.buildFrontData(context, showPointLabels: _showPointLabels);
+    final LineChartData backgroundData = tapeDailyChartController.buildBackgroundData();
+    final LineChartData axisData = tapeDailyChartController.buildAxisData();
+    final LineChartData mainData = tapeDailyChartController.buildMainData(context, showPointLabels: _showPointLabels);
 
     return Scaffold(
       body: SafeArea(
@@ -221,9 +222,10 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                   onDragEnd: tapeDailyChartController.onDragEnd,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 25),
-                    child: _buildChartStack(
-                      backData: backData,
-                      frontData: frontData,
+                    child: _buildChartStack3(
+                      backgroundData: backgroundData,
+                      axisData: axisData,
+                      mainData: mainData,
                       zoomMode: tapeDailyChartController.zoomMode,
                     ),
                   ),
@@ -247,14 +249,37 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
   }
 
   ///
-  Widget _buildChartStack({required LineChartData backData, required LineChartData frontData, required bool zoomMode}) {
+  Widget _buildChartStack3({
+    required LineChartData backgroundData,
+    required LineChartData axisData,
+    required LineChartData mainData,
+    required bool zoomMode,
+  }) {
+    final List<MonthBandLabel> monthLabels = tapeDailyChartController.buildMonthBandLabels();
+
     final Widget charts = Stack(
       children: <Widget>[
         Positioned.fill(
-          child: LineChart(backData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
+          child: LineChart(backgroundData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
         ),
         Positioned.fill(
-          child: LineChart(frontData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: MonthBandLabelPainter(
+                labels: monthLabels,
+                minX: tapeDailyChartController.minX,
+                maxX: tapeDailyChartController.maxX,
+                minY: tapeDailyChartController.fixedMinY,
+                maxY: tapeDailyChartController.fixedMaxY,
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: LineChart(axisData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
+        ),
+        Positioned.fill(
+          child: LineChart(mainData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
         ),
       ],
     );
@@ -314,6 +339,10 @@ class TapeDailyChartController extends ChangeNotifier {
   bool tooltipEnabled = false;
 
   bool zoomMode = false;
+
+  static const double _monthBoundaryBandWidthX = 1.0;
+
+  static const double _dayHalf = 0.5;
 
   ///
   void init() {
@@ -482,120 +511,32 @@ class TapeDailyChartController extends ChangeNotifier {
   }
 
   ///
-  LineChartData buildFrontData(BuildContext context, {required bool showPointLabels}) {
+  LineChartData buildBackgroundData() {
     final double minX0 = minX;
     final double maxX0 = maxX;
 
-    final List<FlSpot> visibleSpots = _extractVisibleSpots(
-      all: allSpots,
-      minX: minX0,
-      maxX: maxX0,
-      extendLastValue: true,
-    );
-
-    final Color lineColor = Theme.of(context).colorScheme.primary;
-    final bool effectiveTooltip = tooltipEnabled && !zoomMode;
+    final List<VerticalRangeAnnotation> ranges = <VerticalRangeAnnotation>[
+      ..._buildOddMonthBands(minX: minX0, maxX: maxX0),
+      ..._buildMonthBoundaryBands(minX: minX0, maxX: maxX0),
+    ];
 
     return LineChartData(
       minX: minX0,
       maxX: maxX0,
       minY: fixedMinY,
       maxY: fixedMaxY,
-
-      titlesData: FlTitlesData(
-        topTitles: const AxisTitles(),
-        bottomTitles: AxisTitles(
-          sideTitles: SideTitles(
-            showTitles: true,
-            reservedSize: 34,
-            interval: 1,
-            getTitlesWidget: (_, __) => const SizedBox.shrink(),
-          ),
-        ),
-        leftTitles: const AxisTitles(),
-        rightTitles: const AxisTitles(),
-      ),
-
-      gridData: FlGridData(verticalInterval: 1, horizontalInterval: fixedIntervalY),
-
+      gridData: const FlGridData(show: false),
+      titlesData: const FlTitlesData(show: false),
       borderData: FlBorderData(show: false),
-      lineBarsData: <LineChartBarData>[
-        LineChartBarData(
-          color: lineColor,
-          spots: visibleSpots,
-          barWidth: 3,
-          isStrokeCapRound: true,
-          dotData: zoomMode
-              ? FlDotData(
-                  show: showPointLabels,
-                  getDotPainter: (FlSpot spot, double percent, LineChartBarData bar, int index) {
-                    return ValueLabelDotPainter(
-                      color: lineColor,
-                      radius: 0.8,
-                      backgroundColor: Colors.black.withOpacity(0.55),
-                      textStyle: const TextStyle(fontSize: 6, color: Colors.white, fontWeight: FontWeight.w600),
-                      labelBuilder: _buildSpotLabel,
-                    );
-                  },
-                )
-              : const FlDotData(show: false),
-        ),
-      ],
-      lineTouchData: effectiveTooltip
-          ? LineTouchData(
-              touchSpotThreshold: 40,
-              touchTooltipData: LineTouchTooltipData(
-                fitInsideHorizontally: true,
-                fitInsideVertically: true,
-                getTooltipItems: (List<LineBarSpot> touchedSpots) {
-                  return touchedSpots.map((LineBarSpot s) {
-                    final DateTime dt = dateFromIndex(s.x.round());
-                    final String title = '${dt.year}/${dt.month}/${dt.day}';
-                    final String val = _toCurrency(s.y.round());
-                    return LineTooltipItem('$title\n$val', const TextStyle(fontSize: 12, color: Colors.white));
-                  }).toList();
-                },
-              ),
-            )
-          : const LineTouchData(enabled: false, handleBuiltInTouches: false),
+      lineTouchData: const LineTouchData(enabled: false, handleBuiltInTouches: false),
+      rangeAnnotations: RangeAnnotations(verticalRangeAnnotations: ranges),
     );
   }
 
   ///
-  String _buildSpotLabel(FlSpot spot) {
-    final DateTime dt = dateFromIndex(spot.x.round());
-
-    final String yyyy = dt.year.toString().padLeft(4, '0');
-    final String mm = dt.month.toString().padLeft(2, '0');
-    final String dd = dt.day.toString().padLeft(2, '0');
-    final String date = '$yyyy-$mm-$dd';
-
-    final int price = spot.y.round();
-    final String displayPrice = _toCurrency(price);
-
-    return '$date\n$displayPrice';
-  }
-
-  ///
-  String _toCurrency(int v) {
-    final String s = v.toString();
-    final StringBuffer b = StringBuffer();
-    for (int i = 0; i < s.length; i++) {
-      final int fromEnd = s.length - i;
-      b.write(s[i]);
-      if (fromEnd > 1 && fromEnd % 3 == 1) {
-        b.write(',');
-      }
-    }
-    return b.toString();
-  }
-
-  ///
-  LineChartData buildBackData() {
+  LineChartData buildAxisData() {
     final double minX0 = minX;
     final double maxX0 = maxX;
-
-    final List<VerticalLine> monthLines = _buildMonthBoundaryLines(minX: minX0, maxX: maxX0);
 
     return LineChartData(
       minX: minX0,
@@ -603,11 +544,8 @@ class TapeDailyChartController extends ChangeNotifier {
       minY: fixedMinY,
       maxY: fixedMaxY,
       lineTouchData: const LineTouchData(enabled: false, handleBuiltInTouches: false),
-      gridData: const FlGridData(show: false),
-
-      extraLinesData: ExtraLinesData(verticalLines: monthLines),
       borderData: FlBorderData(show: false),
-
+      gridData: FlGridData(drawVerticalLine: false, horizontalInterval: fixedIntervalY),
       titlesData: FlTitlesData(
         topTitles: const AxisTitles(),
         bottomTitles: AxisTitles(
@@ -655,8 +593,119 @@ class TapeDailyChartController extends ChangeNotifier {
   }
 
   ///
-  List<VerticalLine> _buildMonthBoundaryLines({required double minX, required double maxX}) {
-    final List<VerticalLine> lines = <VerticalLine>[];
+  LineChartData buildMainData(BuildContext context, {required bool showPointLabels}) {
+    final double minX0 = minX;
+    final double maxX0 = maxX;
+
+    final List<FlSpot> visibleSpots = _extractVisibleSpots(
+      all: allSpots,
+      minX: minX0,
+      maxX: maxX0,
+      extendLastValue: true,
+    );
+
+    final Color lineColor = Theme.of(context).colorScheme.primary;
+    final bool effectiveTooltip = tooltipEnabled && !zoomMode;
+
+    return LineChartData(
+      minX: minX0,
+      maxX: maxX0,
+      minY: fixedMinY,
+      maxY: fixedMaxY,
+      gridData: const FlGridData(show: false),
+      titlesData: const FlTitlesData(show: false),
+      borderData: FlBorderData(show: false),
+      lineBarsData: <LineChartBarData>[
+        LineChartBarData(
+          color: lineColor,
+          spots: visibleSpots,
+          barWidth: 3,
+          isStrokeCapRound: true,
+          dotData: zoomMode
+              ? FlDotData(
+                  show: showPointLabels,
+                  getDotPainter: (FlSpot spot, double percent, LineChartBarData bar, int index) {
+                    return ValueLabelDotPainter(
+                      color: lineColor,
+                      radius: 0.8,
+                      backgroundColor: Colors.black.withOpacity(0.55),
+                      textStyle: const TextStyle(fontSize: 6, color: Colors.white, fontWeight: FontWeight.w600),
+                      labelBuilder: _buildSpotLabel,
+                    );
+                  },
+                )
+              : const FlDotData(show: false),
+        ),
+      ],
+      lineTouchData: effectiveTooltip
+          ? LineTouchData(
+              touchSpotThreshold: 40,
+              touchTooltipData: LineTouchTooltipData(
+                fitInsideHorizontally: true,
+                fitInsideVertically: true,
+                getTooltipItems: (List<LineBarSpot> touchedSpots) {
+                  return touchedSpots.map((LineBarSpot s) {
+                    final DateTime dt = dateFromIndex(s.x.round());
+                    final String title =
+                        '${dt.year}/${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')}';
+                    final String val = _toCurrency(s.y.round());
+                    return LineTooltipItem('$title\n$val', const TextStyle(fontSize: 12, color: Colors.white));
+                  }).toList();
+                },
+              ),
+            )
+          : const LineTouchData(enabled: false, handleBuiltInTouches: false),
+    );
+  }
+
+  ///
+  double _clampAnnotX(double x, {required double minX, required double maxX}) {
+    final double minA = minX - _dayHalf;
+    final double maxA = maxX + _dayHalf;
+    if (x < minA) {
+      return minA;
+    }
+    if (x > maxA) {
+      return maxA;
+    }
+    return x;
+  }
+
+  ///
+  List<VerticalRangeAnnotation> _buildOddMonthBands({required double minX, required double maxX}) {
+    final List<VerticalRangeAnnotation> ranges = <VerticalRangeAnnotation>[];
+
+    final DateTime minDt = dateFromIndex(minX.floor());
+    final DateTime maxDt = dateFromIndex(maxX.ceil());
+
+    DateTime cursor = DateTime(minDt.year, minDt.month);
+    final DateTime endMonth = DateTime(maxDt.year, maxDt.month);
+
+    while (!cursor.isAfter(endMonth)) {
+      if (cursor.month.isOdd) {
+        final DateTime monthStart = DateTime(cursor.year, cursor.month);
+        final DateTime monthEnd = DateTime(cursor.year, cursor.month + 1, 0);
+
+        final int sIdx = monthStart.difference(startDate).inDays;
+        final int eIdx = monthEnd.difference(startDate).inDays;
+
+        final double x1 = _clampAnnotX(sIdx.toDouble() - _dayHalf, minX: minX, maxX: maxX);
+        final double x2 = _clampAnnotX(eIdx.toDouble() + _dayHalf, minX: minX, maxX: maxX);
+
+        if (x2 > x1) {
+          ranges.add(VerticalRangeAnnotation(x1: x1, x2: x2, color: Colors.yellowAccent.withOpacity(0.10)));
+        }
+      }
+
+      cursor = DateTime(cursor.year, cursor.month + 1);
+    }
+
+    return ranges;
+  }
+
+  ///
+  List<VerticalRangeAnnotation> _buildMonthBoundaryBands({required double minX, required double maxX}) {
+    final List<VerticalRangeAnnotation> ranges = <VerticalRangeAnnotation>[];
 
     final DateTime minDt = dateFromIndex(minX.floor());
     final DateTime maxDt = dateFromIndex(maxX.ceil());
@@ -667,24 +716,85 @@ class TapeDailyChartController extends ChangeNotifier {
     }
 
     while (!cursor.isAfter(maxDt)) {
-      final double x = cursor.difference(startDate).inDays.toDouble();
-      lines.add(
-        VerticalLine(
-          x: x,
-          strokeWidth: 1,
-          dashArray: const <int>[6, 6],
-          label: VerticalLineLabel(
-            show: true,
-            alignment: Alignment.topLeft,
-            style: const TextStyle(fontSize: 10),
-            labelResolver: (_) => '${cursor.year}/${cursor.month}',
-          ),
-        ),
-      );
+      final int idx = cursor.difference(startDate).inDays;
+
+      final double boundaryX = idx.toDouble() - _dayHalf;
+
+      final double x1 = _clampAnnotX(boundaryX - (_monthBoundaryBandWidthX / 2), minX: minX, maxX: maxX);
+      final double x2 = _clampAnnotX(boundaryX + (_monthBoundaryBandWidthX / 2), minX: minX, maxX: maxX);
+
+      if (x2 > x1) {
+        ranges.add(VerticalRangeAnnotation(x1: x1, x2: x2, color: Colors.white.withOpacity(0.35)));
+      }
+
       cursor = DateTime(cursor.year, cursor.month + 1);
     }
 
-    return lines;
+    return ranges;
+  }
+
+  ///
+  List<MonthBandLabel> buildMonthBandLabels() {
+    final double minX0 = minX;
+    final double maxX0 = maxX;
+
+    final DateTime minDt = dateFromIndex(minX0.floor());
+    final DateTime maxDt = dateFromIndex(maxX0.ceil());
+
+    DateTime cursor = DateTime(minDt.year, minDt.month);
+    final DateTime endMonth = DateTime(maxDt.year, maxDt.month);
+
+    final List<MonthBandLabel> labels = <MonthBandLabel>[];
+
+    while (!cursor.isAfter(endMonth)) {
+      final DateTime monthStart = DateTime(cursor.year, cursor.month);
+      final DateTime monthEnd = DateTime(cursor.year, cursor.month + 1, 0);
+
+      final int sIdx = monthStart.difference(startDate).inDays;
+      final int eIdx = monthEnd.difference(startDate).inDays;
+
+      final double x1 = _clampAnnotX(sIdx.toDouble() - _dayHalf, minX: minX0, maxX: maxX0);
+      final double x2 = _clampAnnotX(eIdx.toDouble() + _dayHalf, minX: minX0, maxX: maxX0);
+
+      if (x2 > x1) {
+        final double centerX = (x1 + x2) / 2;
+
+        labels.add(MonthBandLabel(year: cursor.year, month: cursor.month, centerX: centerX));
+      }
+
+      cursor = DateTime(cursor.year, cursor.month + 1);
+    }
+
+    return labels;
+  }
+
+  ///
+  String _buildSpotLabel(FlSpot spot) {
+    final DateTime dt = dateFromIndex(spot.x.round());
+
+    final String yyyy = dt.year.toString().padLeft(4, '0');
+    final String mm = dt.month.toString().padLeft(2, '0');
+    final String dd = dt.day.toString().padLeft(2, '0');
+    final String date = '$yyyy-$mm-$dd';
+
+    final int price = spot.y.round();
+    final String displayPrice = _toCurrency(price);
+
+    return '$date\n$displayPrice';
+  }
+
+  ///
+  String _toCurrency(int v) {
+    final String s = v.toString();
+    final StringBuffer b = StringBuffer();
+    for (int i = 0; i < s.length; i++) {
+      final int fromEnd = s.length - i;
+      b.write(s[i]);
+      if (fromEnd > 1 && fromEnd % 3 == 1) {
+        b.write(',');
+      }
+    }
+    return b.toString();
   }
 
   ///
@@ -729,6 +839,85 @@ class TapeDailyChartController extends ChangeNotifier {
     }
 
     return visible;
+  }
+}
+
+/////////////////////////////////////////////////////////////////
+
+class MonthBandLabel {
+  MonthBandLabel({required this.year, required this.month, required this.centerX});
+
+  final int year;
+  final int month;
+
+  final double centerX;
+
+  String get text => '$year/${month.toString().padLeft(2, '0')}';
+}
+
+/////////////////////////////////////////////////////////////////
+
+class MonthBandLabelPainter extends CustomPainter {
+  MonthBandLabelPainter({
+    required this.labels,
+    required this.minX,
+    required this.maxX,
+    required this.minY,
+    required this.maxY,
+  });
+
+  final List<MonthBandLabel> labels;
+
+  final double minX;
+  final double maxX;
+
+  final double minY;
+  final double maxY;
+
+  ///
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (labels.isEmpty) {
+      return;
+    }
+    if (maxX == minX) {
+      return;
+    }
+
+    final double y = size.height * 0.18;
+
+    for (final MonthBandLabel label in labels) {
+      final double px = _xToPx(label.centerX, size.width);
+
+      final TextPainter tp = TextPainter(
+        text: TextSpan(
+          text: label.text,
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.55)),
+        ),
+        textAlign: TextAlign.center,
+        textDirection: TextDirection.ltr,
+      )..layout();
+
+      final Offset pos = Offset(px - tp.width / 2, y - tp.height / 2);
+
+      tp.paint(canvas, pos);
+    }
+  }
+
+  ///
+  double _xToPx(double x, double width) {
+    final double t = (x - minX) / (maxX - minX);
+    return t * width;
+  }
+
+  ///
+  @override
+  bool shouldRepaint(covariant MonthBandLabelPainter oldDelegate) {
+    return oldDelegate.labels != labels ||
+        oldDelegate.minX != minX ||
+        oldDelegate.maxX != maxX ||
+        oldDelegate.minY != minY ||
+        oldDelegate.maxY != maxY;
   }
 }
 
