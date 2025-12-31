@@ -160,6 +160,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
 
     final LineChartData backgroundData = tapeDailyChartController.buildBackgroundData();
     final LineChartData axisData = tapeDailyChartController.buildAxisData();
+    final LineChartData monthlyPowerData = tapeDailyChartController.buildMonthlyPowerData(context);
     final LineChartData mainData = tapeDailyChartController.buildMainData(context, showPointLabels: _showPointLabels);
 
     return Scaffold(
@@ -222,9 +223,10 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
                   onDragEnd: tapeDailyChartController.onDragEnd,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 25),
-                    child: _buildChartStack3(
+                    child: _buildChartStack(
                       backgroundData: backgroundData,
                       axisData: axisData,
+                      monthlyPowerData: monthlyPowerData,
                       mainData: mainData,
                       zoomMode: tapeDailyChartController.zoomMode,
                     ),
@@ -249,9 +251,10 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
   }
 
   ///
-  Widget _buildChartStack3({
+  Widget _buildChartStack({
     required LineChartData backgroundData,
     required LineChartData axisData,
+    required LineChartData monthlyPowerData,
     required LineChartData mainData,
     required bool zoomMode,
   }) {
@@ -262,6 +265,7 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
         Positioned.fill(
           child: LineChart(backgroundData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
         ),
+
         Positioned.fill(
           child: IgnorePointer(
             child: CustomPaint(
@@ -275,9 +279,15 @@ class _TapeDailyLineChartDemoPageState extends State<TapeDailyLineChartDemoPage>
             ),
           ),
         ),
+
         Positioned.fill(
           child: LineChart(axisData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
         ),
+
+        Positioned.fill(
+          child: LineChart(monthlyPowerData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
+        ),
+
         Positioned.fill(
           child: LineChart(mainData, duration: const Duration(milliseconds: 120), curve: Curves.easeOut),
         ),
@@ -420,6 +430,7 @@ class TapeDailyChartController extends ChangeNotifier {
       spots.add(FlSpot(x.toDouble(), m.sum.toDouble()));
     }
 
+    spots.sort((FlSpot a, FlSpot b) => a.x.compareTo(b.x));
     return spots;
   }
 
@@ -656,6 +667,100 @@ class TapeDailyChartController extends ChangeNotifier {
             )
           : const LineTouchData(enabled: false, handleBuiltInTouches: false),
     );
+  }
+
+  ///
+  LineChartData buildMonthlyPowerData(BuildContext context) {
+    final double minX0 = minX;
+    final double maxX0 = maxX;
+
+    final DateTime minDt = dateFromIndex(minX0.floor());
+    final DateTime maxDt = dateFromIndex(maxX0.ceil());
+
+    DateTime cursor = DateTime(minDt.year, minDt.month);
+    final DateTime endMonth = DateTime(maxDt.year, maxDt.month);
+
+    final List<List<FlSpot>> monthSegments = <List<FlSpot>>[];
+
+    while (!cursor.isAfter(endMonth)) {
+      final DateTime monthStartDt = DateTime(cursor.year, cursor.month);
+      final DateTime monthEndDt = DateTime(cursor.year, cursor.month + 1, 0);
+
+      final int monthStartIdx = monthStartDt.difference(startDate).inDays;
+      final int monthEndIdx = monthEndDt.difference(startDate).inDays;
+
+      final int s = math.max(minX0.floor(), monthStartIdx);
+      final int e = math.min(maxX0.ceil(), monthEndIdx);
+
+      if (e <= s) {
+        cursor = DateTime(cursor.year, cursor.month + 1);
+        continue;
+      }
+
+      final double? yStart = _valueAtIndexWithFallback(s);
+      final double? yEnd = _valueAtIndexWithFallback(e);
+
+      if (yStart != null && yEnd != null) {
+        monthSegments.add(<FlSpot>[FlSpot(s.toDouble(), yStart), FlSpot(e.toDouble(), yEnd)]);
+      }
+
+      cursor = DateTime(cursor.year, cursor.month + 1);
+    }
+
+    final Color base = Theme.of(context).colorScheme.primary;
+    final Color thickColor = base.withOpacity(0.28);
+
+    final List<LineChartBarData> bars = monthSegments.map((List<FlSpot> seg) {
+      return LineChartBarData(
+        spots: seg,
+        color: thickColor,
+        barWidth: 10,
+        isStrokeCapRound: true,
+        dotData: const FlDotData(show: false),
+      );
+    }).toList();
+
+    return LineChartData(
+      minX: minX0,
+      maxX: maxX0,
+      minY: fixedMinY,
+      maxY: fixedMaxY,
+      gridData: const FlGridData(show: false),
+      titlesData: const FlTitlesData(show: false),
+      borderData: FlBorderData(show: false),
+      lineBarsData: bars,
+      lineTouchData: const LineTouchData(enabled: false, handleBuiltInTouches: false),
+    );
+  }
+
+  ///
+  double? _valueAtIndexWithFallback(int dayIndex) {
+    if (allSpots.isEmpty) {
+      return null;
+    }
+
+    final int x = dayIndex;
+
+    final int exact = allSpots.indexWhere((FlSpot s) => s.x.round() == x);
+    if (exact >= 0) {
+      return allSpots[exact].y;
+    }
+
+    for (int i = allSpots.length - 1; i >= 0; i--) {
+      final int sx = allSpots[i].x.round();
+      if (sx <= x) {
+        return allSpots[i].y;
+      }
+    }
+
+    for (int i = 0; i < allSpots.length; i++) {
+      final int sx = allSpots[i].x.round();
+      if (sx >= x) {
+        return allSpots[i].y;
+      }
+    }
+
+    return null;
   }
 
   ///
