@@ -354,6 +354,9 @@ class TapeDailyChartController extends ChangeNotifier {
   static const double _dayHalf = 0.5;
 
   ///
+  bool get isEmptyInitial => allSpots.isEmpty;
+
+  ///
   void init() {
     final DateTime now = DateTime.now();
     todayJst = DateTime(now.year, now.month, now.day);
@@ -928,9 +931,11 @@ class TapeDailyChartController extends ChangeNotifier {
 
         final int? yearDelta = cursor.month == 12 ? yearDeltaMap[cursor.year] : null;
 
+        final int displayYear = (isEmptyInitial && cursor.month == 1) ? todayJst.year : cursor.year;
+
         labels.add(
           MonthBandLabel(
-            year: cursor.year,
+            year: displayYear,
             month: cursor.month,
             centerX: centerX,
             monthDelta: monthDelta,
