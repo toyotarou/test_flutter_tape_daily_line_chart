@@ -864,7 +864,15 @@ class TapeDailyChartController extends ChangeNotifier {
       if (x2 > x1) {
         final double centerX = (x1 + x2) / 2;
 
-        labels.add(MonthBandLabel(year: cursor.year, month: cursor.month, centerX: centerX));
+        final double? yStart = _valueAtIndexWithFallback(sIdx);
+        final double? yEnd = _valueAtIndexWithFallback(eIdx);
+
+        int? delta;
+        if (yStart != null && yEnd != null) {
+          delta = (yEnd - yStart).round();
+        }
+
+        labels.add(MonthBandLabel(year: cursor.year, month: cursor.month, centerX: centerX, monthDelta: delta));
       }
 
       cursor = DateTime(cursor.year, cursor.month + 1);
@@ -950,14 +958,39 @@ class TapeDailyChartController extends ChangeNotifier {
 /////////////////////////////////////////////////////////////////
 
 class MonthBandLabel {
-  MonthBandLabel({required this.year, required this.month, required this.centerX});
+  MonthBandLabel({required this.year, required this.month, required this.centerX, this.monthDelta});
 
   final int year;
   final int month;
 
   final double centerX;
 
+  final int? monthDelta;
+
+  ///
   String get text => '$year/${month.toString().padLeft(2, '0')}';
+
+  ///
+  String get deltaText {
+    if (monthDelta == null) {
+      return '';
+    }
+    final int v = monthDelta!;
+    final String sign = v >= 0 ? '+' : '-';
+    final int absV = v.abs();
+
+    final String s = absV.toString();
+    final StringBuffer b = StringBuffer();
+    for (int i = 0; i < s.length; i++) {
+      final int fromEnd = s.length - i;
+      b.write(s[i]);
+      if (fromEnd > 1 && fromEnd % 3 == 1) {
+        b.write(',');
+      }
+    }
+
+    return '$sign$b';
+  }
 }
 
 /////////////////////////////////////////////////////////////////
@@ -989,12 +1022,14 @@ class MonthBandLabelPainter extends CustomPainter {
       return;
     }
 
-    final double y = size.height * 0.18;
+    // “2014/06” の位置（既存）
+    final double yTitle = size.height * 0.18;
 
     for (final MonthBandLabel label in labels) {
       final double px = _xToPx(label.centerX, size.width);
 
-      final TextPainter tp = TextPainter(
+      // 1行目：年月
+      final TextPainter tp1 = TextPainter(
         text: TextSpan(
           text: label.text,
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.55)),
@@ -1003,9 +1038,24 @@ class MonthBandLabelPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout();
 
-      final Offset pos = Offset(px - tp.width / 2, y - tp.height / 2);
+      final Offset pos1 = Offset(px - tp1.width / 2, yTitle - tp1.height / 2);
+      tp1.paint(canvas, pos1);
 
-      tp.paint(canvas, pos);
+      final String deltaText = label.deltaText;
+      if (deltaText.isNotEmpty) {
+        final TextPainter tp2 = TextPainter(
+          text: TextSpan(
+            text: deltaText,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white.withOpacity(0.45)),
+          ),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        final double y2 = pos1.dy + tp1.height + 2;
+        final Offset pos2 = Offset(px - tp2.width / 2, y2);
+        tp2.paint(canvas, pos2);
+      }
     }
   }
 
